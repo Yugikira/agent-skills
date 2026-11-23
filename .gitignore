@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 eval-runs/
+.runs/
 .DS_Store
 .agents/
 .claude/

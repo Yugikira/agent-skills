@@ -85,14 +85,33 @@ def copy_skill_into_workspace(skill_src: Path, workspace_dir: Path) -> None:
         raise FileNotFoundError(f"Skill path not found: {skill_src}")
 
 
+def disambiguate_labels(variant_a: Path, variant_b: Path, label_a: str | None, label_b: str | None) -> tuple[str, str]:
+    la = label_a or variant_a.name
+    lb = label_b or variant_b.name
+    if not label_a and not label_b and la == lb:
+        parts_a = variant_a.parts
+        parts_b = variant_b.parts
+        for depth in range(2, min(len(parts_a), len(parts_b)) + 1):
+            ca = "/".join(parts_a[-depth:])
+            cb = "/".join(parts_b[-depth:])
+            if ca != cb:
+                return ca, cb
+        return f"{la}-a", f"{lb}-b"
+    return la, lb
+
+
 def cmd_prepare(args: argparse.Namespace) -> int:
     suite_path = Path(args.suite).resolve()
     suite = json.loads(suite_path.read_text(encoding="utf-8"))
     variant_a = Path(args.variant_a).resolve()
     variant_b = Path(args.variant_b).resolve()
     out_dir = Path(args.out).resolve()
+    check_blinding_clean(str(out_dir), f"output directory {out_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    label_a, label_b = disambiguate_labels(
+        variant_a, variant_b, getattr(args, "label_a", None), getattr(args, "label_b", None)
+    )
     rng = random.Random(args.seed)
     manifest: dict = {
         "suite_id": suite["suite_id"],
@@ -100,6 +119,8 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         "goal": suite["goal"],
         "variant_a": str(variant_a),
         "variant_b": str(variant_b),
+        "label_a": label_a,
+        "label_b": label_b,
         "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "rubric": suite["rubric"],
         "trials": [],
@@ -266,9 +287,11 @@ def cmd_score(args: argparse.Namespace) -> int:
             )
         ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         note = (args.notes or "").replace("\t", " ").replace("\n", " ")
+        va_label = manifest.get("label_a") or Path(manifest["variant_a"]).name
+        vb_label = manifest.get("label_b") or Path(manifest["variant_b"]).name
         row = (
-            f"{ts}\t{manifest['suite_id']}\t{Path(manifest['variant_a']).name}\t"
-            f"{Path(manifest['variant_b']).name}\t{n}\t{med_a:.3f}\t{med_b:.3f}\t"
+            f"{ts}\t{manifest['suite_id']}\t{va_label}\t"
+            f"{vb_label}\t{n}\t{med_a:.3f}\t{med_b:.3f}\t"
             f"{wins_b}\t{losses_b}\t{ties}\t{verdict}\t{note}\n"
         )
         with log_path.open("a", encoding="utf-8") as fh:
@@ -282,13 +305,15 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
     root = Path(__file__).resolve().parent.parent
     suite = root / "evals" / "suites" / "example-skill-eval.json"
     skill_dir = root / "skills" / "meta" / "writing-for-agents"
-    with tempfile.TemporaryDirectory(prefix="ab_selftest_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="ab_smoke_") as tmp:
         tmp_path = Path(tmp)
         run_dir = tmp_path / "run1"
         prep_args = argparse.Namespace(
             suite=str(suite),
             variant_a=str(skill_dir),
             variant_b=str(skill_dir),
+            label_a="baseline-v1",
+            label_b="refined-v2",
             out=str(run_dir),
             seed=42,
         )
@@ -309,15 +334,33 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
             )
         scores_file = run_dir / "judge-scores.json"
         scores_file.write_text(json.dumps(mock_scores, indent=2), encoding="utf-8")
-        log_file = tmp_path / "test-log.tsv"
+        log_file = tmp_path / "smoke-log.tsv"
         score_args = argparse.Namespace(
             run_dir=str(run_dir),
             scores=str(scores_file),
             log=str(log_file),
-            notes="harness self-test",
+            notes="harness smoke check",
         )
         cmd_score(score_args)
-        assert log_file.exists() and "PROMOTE_B" in log_file.read_text(encoding="utf-8")
+        log_text = log_file.read_text(encoding="utf-8")
+        assert "PROMOTE_B" in log_text and "baseline-v1\trefined-v2" in log_text
+
+        # Verify --out blinding guard rejects banned words in workspace parent path
+        try:
+            cmd_prepare(
+                argparse.Namespace(
+                    suite=str(suite),
+                    variant_a=str(skill_dir),
+                    variant_b=str(skill_dir),
+                    label_a=None,
+                    label_b=None,
+                    out=str(tmp_path / "eval-runs" / "bad"),
+                    seed=1,
+                )
+            )
+            raise AssertionError("Expected ValueError for banned word in --out path")
+        except ValueError:
+            pass
 
         # Also verify fixture_dir + fixture_target staging
         fix_src = tmp_path / "sample-kb"
@@ -351,6 +394,8 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 suite=str(fix_suite),
                 variant_a=str(skill_dir),
                 variant_b=str(skill_dir),
+                label_a=None,
+                label_b=None,
                 out=str(run_dir2),
                 seed=7,
             )
@@ -370,6 +415,8 @@ def main() -> int:
     p_prep.add_argument("--suite", required=True)
     p_prep.add_argument("--variant-a", required=True)
     p_prep.add_argument("--variant-b", required=True)
+    p_prep.add_argument("--label-a", default=None, help="Readable label for Variant A in eval-log.tsv")
+    p_prep.add_argument("--label-b", default=None, help="Readable label for Variant B in eval-log.tsv")
     p_prep.add_argument("--out", required=True)
     p_prep.add_argument("--seed", type=int, default=None)
     p_prep.set_defaults(func=cmd_prepare)

@@ -19,24 +19,26 @@ Prove that a skill change (Variant B) improves real agent behavior over the base
 ## Workflow
 
 1. **Frame**: Create or select an eval suite in `evals/suites/<name>.json` specifying the goal, organic prompts (3-5 realistic scenarios), and a hidden 3-6 criterion rubric.
-2. **Stage**: Run the harness to validate blinding and build neutral workspaces:
+2. **Stage**: Run the harness to validate blinding and build neutral workspaces (use a neutral `--out` directory with zero banned words, such as `.runs/<run-id>`):
    ```bash
    python3 scripts/ab_harness.py prepare \
      --suite evals/suites/<name>.json \
      --variant-a <path-to-baseline-skill> \
      --variant-b <path-to-candidate-skill> \
-     --out eval-runs/<run-id>
+     --label-a <baseline-label> \
+     --label-b <candidate-label> \
+     --out .runs/<run-id>
    ```
 3. **Execute candidates**: For each trial, run an agent in each staged workspace using the exact organic prompt. Alternate execution order (`A, B, B, A`) to avoid warmup or cache bias.
-4. **Judge blind**: Give the judge only `eval-runs/<run-id>/judge-packet.json` (blinded outputs + rubric). Save its structured ratings to `eval-runs/<run-id>/judge-scores.json`.
+4. **Judge blind**: Give the judge only `.runs/<run-id>/judge-packet.json` (blinded outputs + rubric). Save its structured ratings to `.runs/<run-id>/judge-scores.json`.
 5. **Audit & Score**:
    - Inspect candidate transcripts to verify the skill actually triggered and was read.
    - Read both outputs yourself end-to-end; flag any disagreement with the judge as rubric ambiguity or judge bias.
    - Unblind, compute medians/ranges/win-rate, and append to the decision trail:
      ```bash
      python3 scripts/ab_harness.py score \
-       --run-dir eval-runs/<run-id> \
-       --scores eval-runs/<run-id>/judge-scores.json \
+       --run-dir .runs/<run-id> \
+       --scores .runs/<run-id>/judge-scores.json \
        --log evals/results/eval-log.tsv
      ```
 
