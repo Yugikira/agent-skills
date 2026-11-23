@@ -1,1 +1,2 @@
 timestamp	suite_id	variant_a	variant_b	trials	median_a	median_b	win_b	loss_b	tie	verdict	notes
+2026-11-23T08:10:59Z	kb-query-v1	kb-skill/kb-query	in-progress/kb-query	3	4.143	4.714	3	0	0	PROMOTE_B	kb-query v3 original (A) vs fixed kb_search.py + cleaned SKILL.md (B); 3/3 A crashed on kb_search --query vs 0/3 B

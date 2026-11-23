@@ -1,0 +1,50 @@
+{
+  "suite_id": "kb-query-v1",
+  "target_skill": "kb-query",
+  "goal": "Reliably search and synthesize grounded, wikilink-cited literature answers from an external Knowledge Base directory on Windows without script crashes.",
+  "trials": [
+    {
+      "trial_id": "t1",
+      "workspace_slug": "harbor-research",
+      "organic_prompt": "I am writing a literature review section on how All-Star awards affect financial analyst performance. Search my local knowledge base in ./library and summarize the mechanisms, empirical findings (exact variables and magnitudes), and key operational proxies with wikilink citations. Remember the library path for future questions in this workspace.",
+      "fixture_dir": "evals/fixtures/scholar-kb",
+      "fixture_target": "library"
+    },
+    {
+      "trial_id": "t2",
+      "workspace_slug": "cedar-research",
+      "organic_prompt": "Look up Outside Opportunities in my knowledge base under ./library and do a deep dive into how it is measured across papers, including the exact paper variable names, canonical wiki variable names, formulas, and empirical results on compensation and pay-for-luck.",
+      "fixture_dir": "evals/fixtures/scholar-kb",
+      "fixture_target": "library"
+    },
+    {
+      "trial_id": "t3",
+      "workspace_slug": "maple-research",
+      "organic_prompt": "Search my knowledge base in ./library for formal theoretical results on market informational efficiency and the equilibrium proportion of informed traders. Summarize the main theorems, model parameters (with symbols), and any gaps if a topic is not covered.",
+      "fixture_dir": "evals/fixtures/scholar-kb",
+      "fixture_target": "library"
+    }
+  ],
+  "rubric": [
+    {
+      "id": "grounded_accuracy",
+      "description": "Every empirical magnitude, formula, theorem, and symbol matches the files in ./library with zero fabricated claims.",
+      "weight": 2
+    },
+    {
+      "id": "variable_and_citation_honesty",
+      "description": "Uses valid Obsidian [[wikilink]] citations and preserves both canonical wiki variable names and exact paper variable names.",
+      "weight": 2
+    },
+    {
+      "id": "workflow_execution",
+      "description": "Resolves and persists the external KB path cleanly (.kb_root when asked), executes search/deep-graph workflow without broken script failures, and covers linked pages thoroughly.",
+      "weight": 2
+    },
+    {
+      "id": "clarity_and_structure",
+      "description": "Delivers a concise, well-structured synthesis with a Sources Consulted list and appropriate follow-up save suggestion when warranted.",
+      "weight": 1
+    }
+  ]
+}
