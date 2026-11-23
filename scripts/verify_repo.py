@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Structural and policy verifier for the agent-skills repository.
+
+Enforces:
+- Valid YAML frontmatter in every SKILL.md (name matches dir, description non-empty)
+- Dual-harness invocation parity (disable-model-invocation: true <-> agents/openai.yaml)
+- Line budget (warn > 250 lines, fail > 300 lines)
+- Zero em-dashes in repo prose
+- All relative Markdown links resolve to existing files
+- Promoted skills (meta/, custom/) synced across README.md, bucket README.md,
+  docs/<bucket>/<name>.md (4 required H2 headings), and skill-mode router
+- Non-promoted skills (in-progress/, deprecated/) excluded from top-level README.md and docs/
+- Zero blinding-leak terms in evals/suites/*.json candidate-visible fields
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PROMOTED_BUCKETS = ("meta", "custom")
+NON_PROMOTED_BUCKETS = ("in-progress", "deprecated")
+ALL_BUCKETS = PROMOTED_BUCKETS + NON_PROMOTED_BUCKETS
+MAX_LINES_WARN = 250
+MAX_LINES_FAIL = 300
+REQUIRED_DOC_HEADINGS = (
+    "## What it does",
+    "## When to reach for it",
+    "## Common questions",
+    "## It's working if",
+)
+BANNED_BLINDING_WORDS = (
+    "eval",
+    "test",
+    "judge",
+    "experiment",
+    "rubric",
+    "score",
+    "compare",
+    "benchmark",
+    "candidate",
+    "arena",
+)
+
+errors: list[str] = []
+warnings: list[str] = []
+
+
+def parse_frontmatter(text: str, path: Path) -> tuple[dict[str, str], str]:
+    if not text.startswith("---\n"):
+        errors.append(f"{path.relative_to(ROOT)}: missing YAML frontmatter")
+        return {}, text
+    parts = text.split("\n---\n", 1)
+    if len(parts) != 2:
+        errors.append(f"{path.relative_to(ROOT)}: unclosed YAML frontmatter")
+        return {}, text
+    raw_fm, body = parts[0][4:], parts[1]
+    meta: dict[str, str] = {}
+    for line in raw_fm.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" in stripped:
+            key, val = stripped.split(":", 1)
+            meta[key.strip()] = val.strip().strip('"').strip("'")
+    return meta, body
+
+
+def check_em_dashes(path: Path, text: str) -> None:
+    for idx, line in enumerate(text.splitlines(), 1):
+        if "\u2014" in line:
+            errors.append(f"{path.relative_to(ROOT)}:{idx}: em-dash found; rewrite with comma, colon, period, or parentheses")
+
+
+def check_relative_links(path: Path, text: str) -> None:
+    link_re = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+    for idx, line in enumerate(text.splitlines(), 1):
+        for match in link_re.finditer(line):
+            target = match.group(1).strip()
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            target_path = target.split("#", 1)[0]
+            if not target_path:
+                continue
+            resolved = (path.parent / target_path).resolve()
+            if not resolved.exists():
+                errors.append(f"{path.relative_to(ROOT)}:{idx}: broken relative link -> {target}")
+
+
+def check_skills() -> None:
+    top_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    router_path = ROOT / "skills/meta/skill-mode/SKILL.md"
+    router_text = router_path.read_text(encoding="utf-8") if router_path.exists() else ""
+
+    for bucket in ALL_BUCKETS:
+        bucket_dir = ROOT / "skills" / bucket
+        if not bucket_dir.exists():
+            errors.append(f"Missing bucket directory: skills/{bucket}")
+            continue
+        bucket_readme_path = bucket_dir / "README.md"
+        if not bucket_readme_path.exists():
+            errors.append(f"Missing bucket README: skills/{bucket}/README.md")
+            bucket_readme = ""
+        else:
+            bucket_readme = bucket_readme_path.read_text(encoding="utf-8")
+
+        for skill_dir in sorted(p for p in bucket_dir.iterdir() if p.is_dir()):
+            skill_md = skill_dir / "SKILL.md"
+            if not skill_md.exists():
+                errors.append(f"{skill_dir.relative_to(ROOT)}: missing SKILL.md")
+                continue
+            text = skill_md.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            if len(lines) > MAX_LINES_FAIL:
+                errors.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds hard cap ({MAX_LINES_FAIL})")
+            elif len(lines) > MAX_LINES_WARN:
+                warnings.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds soft target ({MAX_LINES_WARN})")
+
+            meta, _ = parse_frontmatter(text, skill_md)
+            name = meta.get("name", "")
+            desc = meta.get("description", "")
+            if name != skill_dir.name:
+                errors.append(f"{skill_md.relative_to(ROOT)}: frontmatter name '{name}' != directory '{skill_dir.name}'")
+            if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+                errors.append(f"{skill_md.relative_to(ROOT)}: name '{name}' must be lowercase kebab-case")
+            if not desc:
+                errors.append(f"{skill_md.relative_to(ROOT)}: empty description")
+            elif len(desc) > 300:
+                warnings.append(f"{skill_md.relative_to(ROOT)}: description is {len(desc)} chars (aim for <= 300)")
+
+            # Dual-harness invocation parity
+            user_invoked = meta.get("disable-model-invocation", "").lower() == "true"
+            openai_yaml = skill_dir / "agents" / "openai.yaml"
+            if user_invoked:
+                if not openai_yaml.exists():
+                    errors.append(f"{skill_dir.relative_to(ROOT)}: user-invoked skill missing agents/openai.yaml")
+                else:
+                    yaml_text = openai_yaml.read_text(encoding="utf-8")
+                    if "allow_implicit_invocation: false" not in yaml_text:
+                        errors.append(
+                            f"{openai_yaml.relative_to(ROOT)}: must set 'allow_implicit_invocation: false' for user-invoked skill"
+                        )
+            else:
+                if openai_yaml.exists() and "allow_implicit_invocation: false" in openai_yaml.read_text(encoding="utf-8"):
+                    errors.append(
+                        f"{openai_yaml.relative_to(ROOT)}: sets allow_implicit_invocation: false but SKILL.md omits disable-model-invocation: true"
+                    )
+
+            # Promoted vs non-promoted sync checks
+            rel_link = f"skills/{bucket}/{skill_dir.name}/SKILL.md"
+            doc_path = ROOT / "docs" / bucket / f"{skill_dir.name}.md"
+            if bucket in PROMOTED_BUCKETS:
+                if rel_link not in top_readme:
+                    errors.append(f"README.md: missing link to promoted skill '{rel_link}'")
+                if f"{skill_dir.name}/SKILL.md" not in bucket_readme:
+                    errors.append(f"skills/{bucket}/README.md: missing link to '{skill_dir.name}/SKILL.md'")
+                if not doc_path.exists():
+                    errors.append(f"Missing docs page for promoted skill: {doc_path.relative_to(ROOT)}")
+                else:
+                    doc_text = doc_path.read_text(encoding="utf-8")
+                    for heading in REQUIRED_DOC_HEADINGS:
+                        if heading not in doc_text:
+                            errors.append(f"{doc_path.relative_to(ROOT)}: missing required section '{heading}'")
+                if skill_dir.name != "skill-mode" and skill_dir.name not in router_text:
+                    errors.append(f"skills/meta/skill-mode/SKILL.md: router does not mention promoted skill '{skill_dir.name}'")
+            else:
+                if rel_link in top_readme:
+                    errors.append(f"README.md: non-promoted skill '{rel_link}' must not appear in top-level README.md")
+                if doc_path.exists():
+                    errors.append(f"Non-promoted skill should not have docs page: {doc_path.relative_to(ROOT)}")
+
+
+def check_markdown_files() -> None:
+    for md_path in sorted(ROOT.rglob("*.md")):
+        if any(part.startswith(".") for part in md_path.relative_to(ROOT).parts):
+            continue
+        text = md_path.read_text(encoding="utf-8")
+        check_em_dashes(md_path, text)
+        check_relative_links(md_path, text)
+
+
+def check_eval_suites() -> None:
+    suites_dir = ROOT / "evals" / "suites"
+    if not suites_dir.exists():
+        return
+    word_patterns = [(w, re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)) for w in BANNED_BLINDING_WORDS]
+    for suite_path in sorted(suites_dir.glob("*.json")):
+        try:
+            data = json.loads(suite_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"{suite_path.relative_to(ROOT)}: invalid JSON ({exc})")
+            continue
+        for key in ("suite_id", "target_skill", "goal", "trials", "rubric"):
+            if key not in data:
+                errors.append(f"{suite_path.relative_to(ROOT)}: missing required key '{key}'")
+        rubric = data.get("rubric", [])
+        if not (3 <= len(rubric) <= 6):
+            warnings.append(f"{suite_path.relative_to(ROOT)}: rubric has {len(rubric)} criteria (recommended 3-6)")
+        for trial in data.get("trials", []):
+            tid = trial.get("trial_id", "?")
+            fields_to_check = [
+                ("workspace_slug", str(trial.get("workspace_slug", ""))),
+                ("organic_prompt", str(trial.get("organic_prompt", ""))),
+            ]
+            for fname in (trial.get("fixture_files") or {}).keys():
+                fields_to_check.append((f"fixture_files[{fname}]", str(fname)))
+            for field_name, val in fields_to_check:
+                for word, pat in word_patterns:
+                    if pat.search(val):
+                        errors.append(
+                            f"{suite_path.relative_to(ROOT)} (trial {tid}, {field_name}): blinding leak word '{word}'"
+                        )
+
+
+def main() -> int:
+    check_skills()
+    check_markdown_files()
+    check_eval_suites()
+
+    for w in warnings:
+        print(f"[WARN] {w}")
+    for e in errors:
+        print(f"[FAIL] {e}")
+
+    if errors:
+        print(f"\nVerification FAILED: {len(errors)} error(s), {len(warnings)} warning(s).")
+        return 1
+    print(f"Verification PASSED: 0 errors, {len(warnings)} warning(s).")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

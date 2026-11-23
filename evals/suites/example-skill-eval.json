@@ -1,0 +1,48 @@
+{
+  "suite_id": "writing-for-agents-pruning",
+  "target_skill": "writing-for-agents",
+  "goal": "Tighten bloated agent instructions by deleting no-ops while preserving every load-bearing constraint.",
+  "trials": [
+    {
+      "trial_id": "t1",
+      "workspace_slug": "cedar-checkout",
+      "organic_prompt": "Please review and tighten our service's AGENTS.md so agents follow the migration and release rules reliably without wasting context.",
+      "fixture_files": {
+        "AGENTS.md": "# Cedar Checkout Rules\n\nAlways remember that writing clean code is very important for maintainability. Whenever you change a database schema, run `npm run migrate:check` before opening a PR. Never skip tests because tests help prevent bugs. Keep PRs focused on one logical change.\n"
+      }
+    },
+    {
+      "trial_id": "t2",
+      "workspace_slug": "northwind-cli",
+      "organic_prompt": "Draft a concise skill file for triaging flaky CI jobs in this repo without repeating general git advice.",
+      "fixture_files": {
+        "README.md": "# Northwind CLI\n\nRun `pytest -q` locally and `gh run view --log-failed` for CI logs.\n"
+      }
+    },
+    {
+      "trial_id": "t3",
+      "workspace_slug": "harbor-sync",
+      "organic_prompt": "Clean up this instruction doc; keep the generator-owned sync markers intact and cut anything redundant.",
+      "fixture_files": {
+        "AGENTS.md": "# Harbor Sync\n\n<!-- sync-tool:start -->\nDo not edit this block manually; run `sync-tool refresh`.\n<!-- sync-tool:end -->\n\nBe thorough and careful when editing files. Always run `cargo check` before finishing. Remember to always run `cargo check` at the end.\n"
+      }
+    }
+  ],
+  "rubric": [
+    {
+      "id": "noop_pruning",
+      "description": "Deletes generic advice and duplicate rules that do not change agent behavior.",
+      "weight": 2
+    },
+    {
+      "id": "constraint_preservation",
+      "description": "Preserves every load-bearing command, invariant, and generator-owned marker block intact.",
+      "weight": 3
+    },
+    {
+      "id": "clarity_and_structure",
+      "description": "Uses crisp, scannable structure with clear completion criteria and no em-dashes.",
+      "weight": 1
+    }
+  ]
+}
