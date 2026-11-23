@@ -7,15 +7,15 @@ This repository stores, verifies, refines, and A/B tests agent skills. `AGENTS.m
 Skills live under `skills/` in four buckets:
 
 - `skills/meta/`: promoted meta-skills that create, verify, refine, and A/B test skills.
-- `skills/custom/`: your promoted domain skills.
+- `skills/custom/`: promoted domain skills. Related skills may be grouped 1 level deep (`skills/custom/<group>/<skill-name>/`); standalone skills live directly at `skills/custom/<skill-name>/`. Skill names must be globally unique across all buckets and groups.
 - `skills/in-progress/`: beta skills under development or A/B evaluation. Not linked or shipped until promoted.
 - `skills/deprecated/`: retired skills kept for reference. Not linked or shipped.
 
-Every skill in a promoted bucket (`meta/`, `custom/`) must have:
+Progressive-disclosure docs live under `docs/` (`docs/README.md` -> `docs/<bucket>/README.md` -> `docs/custom/<group>/README.md` -> per-skill doc). Every promoted skill (`meta/`, `custom/`) must satisfy:
 
-1. An entry in the top-level `README.md` linking the skill name to its `SKILL.md`.
-2. An entry in its bucket's `README.md` grouped under `User-invoked` or `Model-invoked`.
-3. A human-facing docs page at `docs/<bucket>/<skill-name>.md` with four sections: `What it does`, `When to reach for it`, `Common questions`, and `It's working if`.
+1. **Standalone promoted skills** (`meta/<name>`, `custom/<name>`): linked in top-level `README.md`, `skills/<bucket>/README.md`, and `docs/<bucket>/README.md`, with a docs page at `docs/<bucket>/<skill-name>.md`.
+2. **Grouped custom skills** (`custom/<group>/<name>`): group overview at `docs/custom/<group>/README.md` (single source of truth; no duplicate `skills/custom/<group>/README.md`) linked from top-level `README.md`, `skills/custom/README.md`, and `docs/custom/README.md`; each skill linked in `docs/custom/<group>/README.md` with its docs page at `docs/custom/<group>/<skill-name>.md`.
+3. Every promoted skill docs page has four sections: `What it does`, `When to reach for it`, `Common questions`, and `It's working if`.
 4. For `skills/meta/` skills, an entry in `skills/meta/skill-mode/SKILL.md` so the meta-skill router stays accurate.
 
 Skills in `in-progress/` and `deprecated/` must not appear in the top-level `README.md` or `docs/`.
@@ -47,5 +47,5 @@ Before promoting a skill from `skills/in-progress/` or merging a behavioral edit
 Do not automatically link or copy skills into global directories after edits or promotions.
 
 - Inside this repo, mount `skills/meta/` locally (gitignored `.agents/skills/`) with `python3 scripts/install_skills.py mount-local`.
-- Deploy promoted skills on demand to a target project workspace (defaults to copy) or explicitly to `--global` (opt-in) with `python3 scripts/install_skills.py install`.
+- Deploy promoted skills on demand (by `--skills`, `--group`, or `--bucket`) to a target project workspace (defaults to copy) or explicitly to `--global` (opt-in) with `python3 scripts/install_skills.py install`. Grouped skills are always flattened to `<target>/<skill-name>/` on install.
 - Skills in `skills/in-progress/` are blocked by default and can only be installed into a workspace with `--allow-in-progress` (never globally).

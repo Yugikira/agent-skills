@@ -23,28 +23,32 @@ The architecture synthesizes patterns from [mattpocock/skills](https://github.co
 4. **Run the improvement loop**:
    - Use `/skill-mode` as the entry point for creating, verifying, refining, or A/B testing any skill.
    - Run `scripts/ab_harness.py` to stage blinded A/B workspaces and score judge results into `evals/results/eval-log.tsv`.
-5. **Deploy promoted skills on demand** (copy into a project workspace by default, or pass `--mode link` / `--global` when you explicitly want live links or global installation):
+5. **Discover and deploy promoted skills on demand** (copies into a project workspace by default, flattened to `<target>/<skill-name>/`; pass `--mode link` or `--global` when you explicitly want live links or global installation):
    ```bash
-   python3 scripts/install_skills.py install --skills my-skill --workspace /path/to/project
+   python3 scripts/install_skills.py list --describe
+   python3 scripts/install_skills.py install --group kb-skills --workspace /path/to/project
+   python3 scripts/install_skills.py install --skills kb-query --workspace /path/to/project
    python3 scripts/install_skills.py install --bucket custom --global --harness agents,claude,antigravity
    ```
 
 ## Promoted Skills
 
-### User-invoked
+See [docs/README.md](docs/README.md) for the progressive-disclosure documentation catalog.
+
+### Domain Skill Groups
+
+- [kb-skills](docs/custom/kb-skills/README.md): Academic Markdown Knowledge Base suite (`kb-ingest`, `kb-query`, `kb-lint`, `kb-consolidate`) for ingesting papers, querying literature, auditing links/orphans, and consolidating wiki pages.
+
+### Meta & Standalone Skills (User-invoked)
 
 - [skill-mode](skills/meta/skill-mode/SKILL.md): Sticky router that matches any skill-repo task to a playbook (`authoring-a-skill`, `verify-skill`, `refine-skill`, `ab-eval`) and applies core principles.
 - [verify-skills](skills/meta/verify-skills/SKILL.md): Runs static linting, link checks, invocation parity, and live end-to-end harness verification with preserved evidence.
 - [refine-skill](skills/meta/refine-skill/SKILL.md): Runs a disciplined hillclimb and no-op pruning loop so every edit targets one root cause and proves improvement.
 - [ab-eval-skill](skills/meta/ab-eval-skill/SKILL.md): Designs and runs blinded A/B evaluations across variants using organic prompts, hidden rubrics, and transcript audits.
-- [kb-ingest](skills/custom/kb-ingest/SKILL.md): Ingests academic papers by DOI, title, citekey, or PDF into a Markdown Knowledge Base with methodology-specific summaries, collision checks, and wiki pages.
-- [kb-lint](skills/custom/kb-lint/SKILL.md): Audits a Knowledge Base for broken Markdown/legacy links, true incoming-link orphan pages, stale summaries, and conflicting variable interpretations.
-- [kb-consolidate](skills/custom/kb-consolidate/SKILL.md): Audits and consolidates wiki concepts, constructs, and variables by merging duplicate proxies, relocating misplaced entries, and applying top-journal caps.
 
-### Model-invoked
+### Meta & Standalone Skills (Model-invoked)
 
 - [writing-for-agents](skills/meta/writing-for-agents/SKILL.md): Reference for authoring and pruning any agent-facing file (`SKILL.md`, `AGENTS.md`, specs, prompts) using context pointers, progressive disclosure, leading words, and the no-op test.
-- [kb-query](skills/custom/kb-query/SKILL.md): Standalone, directory-agnostic Knowledge Base search and synthesis skill using `rg`-first discovery, `.kb_root` persistence, and 1-hop link expansion.
 
 ## Architecture & Workflow
 

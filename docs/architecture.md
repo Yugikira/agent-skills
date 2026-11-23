@@ -8,7 +8,7 @@ This repository treats agent skills like production software: every edit is scop
   - Bucketed lifecycle (`meta/`, `custom/`, `in-progress/`, `deprecated/`) defined in [CLAUDE.md](https://github.com/mattpocock/skills/blob/main/CLAUDE.md).
   - Context-load vs. cognitive-load discipline, five authoring levers, and the sentence-level no-op test from [writing-for-agents.md](https://github.com/mattpocock/skills/blob/main/docs/productivity/writing-for-agents.md).
   - Dual invocation metadata (`disable-model-invocation: true` in `SKILL.md` paired with `policy.allow_implicit_invocation: false` in `agents/openai.yaml`) and cross-platform opt-in deployment via `scripts/install_skills.py`.
-  - Mirrored human documentation in `docs/<bucket>/<skill-name>.md`.
+  - Mirrored progressive-disclosure human documentation in `docs/README.md`, `docs/<bucket>/README.md`, `docs/custom/<group>/README.md`, and `docs/<bucket>/[<group>/]<skill-name>.md`.
 - **From poteto's [cursor/plugins/pstack](https://github.com/cursor/plugins/blob/main/pstack/README.md)**:
   - Sticky mode router (`skill-mode`) with playbooks and inline principles (`laziness-protocol`, `encode-lessons-in-structure`, `prove-it-works`, `explain-the-number`).
   - Delete-first skill authoring from [authoring-a-skill.md](https://github.com/cursor/plugins/blob/main/pstack/skills/poteto-mode/playbooks/authoring-a-skill.md).

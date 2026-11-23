@@ -5,10 +5,13 @@ Replaces bash symlink scripts with safe, opt-in workspace or global installation
 using native directory junctions on Windows (no admin required), symlinks on Unix,
 or provenance-tracked copies.
 
+Supports optional 1-level domain groups under skills/custom/<group>/<skill>/ while
+always flattening deployed targets to <target>/<skill>/ for harness compatibility.
+
 Subcommands:
-  list         Show available skills grouped by bucket.
+  list         Show available skills grouped by bucket and domain group.
   mount-local  Link this repo's meta-skills into local .agents/skills (gitignored).
-  install      Deploy selected skills to a workspace, global harness dir, or custom dest.
+  install      Deploy selected skills or groups to a workspace, global dir, or custom dest.
   uninstall    Safely remove forge-managed skills without touching unmanaged ones.
   self-test    Run an isolated temp-directory smoke test of all modes and guards.
 """
@@ -16,6 +19,7 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 import json
 import os
@@ -42,6 +46,21 @@ HARNESS_WORKSPACE_REL = {
 DEFAULT_GLOBAL_HARNESSES = ("agents", "claude", "antigravity")
 
 
+@dataclasses.dataclass(frozen=True)
+class SkillRecord:
+    bucket: str
+    group: str | None
+    name: str
+    path: Path
+    description: str = ""
+
+    @property
+    def source_label(self) -> str:
+        if self.group:
+            return f"{self.bucket}/{self.group}/{self.name}"
+        return f"{self.bucket}/{self.name}"
+
+
 def harness_global_dir(harness: str, home: Path | None = None) -> Path:
     base = home or Path.home()
     mapping = {
@@ -51,6 +70,24 @@ def harness_global_dir(harness: str, home: Path | None = None) -> Path:
         "cursor": base / ".cursor" / "skills",
     }
     return mapping[harness]
+
+
+def read_skill_description(skill_md: Path) -> str:
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    if not text.startswith("---\n"):
+        return ""
+    parts = text.split("\n---\n", 1)
+    if len(parts) != 2:
+        return ""
+    for line in parts[0][4:].splitlines():
+        stripped = line.strip()
+        if stripped.startswith("description:"):
+            _, val = stripped.split(":", 1)
+            return val.strip().strip('"').strip("'")
+    return ""
 
 
 def is_link_or_junction(path: Path) -> bool:
@@ -110,6 +147,17 @@ def remove_entry(path: Path) -> None:
         path.unlink()
 
 
+def read_managed_marker(path: Path) -> dict | None:
+    marker = path / MANAGED_MARKER
+    if not marker.is_file():
+        return None
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def is_managed_entry(path: Path, repo_root: Path = ROOT) -> bool:
     if not (path.exists() or is_link_or_junction(path)):
         return False
@@ -123,26 +171,86 @@ def is_managed_entry(path: Path, repo_root: Path = ROOT) -> bool:
             return True
         except ValueError:
             return False
-    marker = path / MANAGED_MARKER
-    if marker.is_file():
+    data = read_managed_marker(path)
+    return bool(data and data.get("managed_by") == MANAGED_BY)
+
+
+def installed_entry_group(path: Path, repo_root: Path = ROOT) -> str | None:
+    if is_link_or_junction(path):
+        target = read_link_target(path)
+        if target is None:
+            return None
+        skills_root = (repo_root / "skills").resolve()
         try:
-            data = json.loads(marker.read_text(encoding="utf-8"))
-            return data.get("managed_by") == MANAGED_BY
-        except (OSError, json.JSONDecodeError):
-            return False
-    return False
+            rel = target.resolve().relative_to(skills_root)
+        except ValueError:
+            return None
+        if len(rel.parts) == 3 and rel.parts[0] == "custom":
+            return rel.parts[1]
+        return None
+    data = read_managed_marker(path)
+    if data and data.get("managed_by") == MANAGED_BY:
+        grp = data.get("group")
+        return str(grp) if grp else None
+    return None
 
 
-def discover_skills(repo_root: Path = ROOT) -> dict[str, dict[str, Path]]:
-    found: dict[str, dict[str, Path]] = {b: {} for b in ALL_BUCKETS}
+def discover_skills(repo_root: Path = ROOT) -> dict[str, dict[str, SkillRecord]]:
+    found: dict[str, dict[str, SkillRecord]] = {b: {} for b in ALL_BUCKETS}
+    seen_global: dict[str, str] = {}
+
+    def register(rec: SkillRecord) -> None:
+        if rec.name in seen_global:
+            raise ValueError(
+                f"Duplicate skill name '{rec.name}' found in '{rec.source_label}' and '{seen_global[rec.name]}'."
+            )
+        seen_global[rec.name] = rec.source_label
+        found[rec.bucket][rec.name] = rec
+
     for bucket in ALL_BUCKETS:
         bdir = repo_root / "skills" / bucket
         if not bdir.is_dir():
             continue
         for child in sorted(bdir.iterdir()):
-            if child.is_dir() and (child / "SKILL.md").is_file():
-                found[bucket][child.name] = child.resolve()
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            skill_md = child / "SKILL.md"
+            if skill_md.is_file():
+                register(
+                    SkillRecord(
+                        bucket=bucket,
+                        group=None,
+                        name=child.name,
+                        path=child.resolve(),
+                        description=read_skill_description(skill_md),
+                    )
+                )
+            elif bucket == "custom":
+                for sub in sorted(child.iterdir()):
+                    if not sub.is_dir() or sub.name.startswith("."):
+                        continue
+                    sub_md = sub / "SKILL.md"
+                    if sub_md.is_file():
+                        register(
+                            SkillRecord(
+                                bucket=bucket,
+                                group=child.name,
+                                name=sub.name,
+                                path=sub.resolve(),
+                                description=read_skill_description(sub_md),
+                            )
+                        )
     return found
+
+
+def available_groups(all_skills: dict[str, dict[str, SkillRecord]]) -> dict[str, list[SkillRecord]]:
+    grouped: dict[str, list[SkillRecord]] = {}
+    for rec in all_skills["custom"].values():
+        if rec.group:
+            grouped.setdefault(rec.group, []).append(rec)
+    for grp in grouped:
+        grouped[grp].sort(key=lambda r: r.name)
+    return dict(sorted(grouped.items()))
 
 
 def parse_csv(raw: str | None) -> list[str]:
@@ -192,21 +300,25 @@ def resolve_target_dirs(
 
 
 def select_skills(
-    all_skills: dict[str, dict[str, Path]],
+    all_skills: dict[str, dict[str, SkillRecord]],
     bucket: str | None,
     skill_names: list[str],
     allow_in_progress: bool,
     use_global: bool,
-) -> list[tuple[str, str, Path]]:
-    if not bucket and not skill_names:
-        raise ValueError("Specify --bucket <meta|custom|promoted|in-progress> and/or --skills <name1,name2>.")
+    groups: list[str] | None = None,
+) -> list[SkillRecord]:
+    group_names = groups or []
+    if not bucket and not skill_names and not group_names:
+        raise ValueError(
+            "Specify --bucket <meta|custom|promoted|in-progress>, --group <g1,g2>, and/or --skills <s1,s2>."
+        )
 
     if use_global and allow_in_progress:
         raise ValueError("--allow-in-progress cannot be combined with --global.")
     if use_global and bucket == "in-progress":
         raise ValueError("in-progress skills cannot be installed globally.")
 
-    selected: list[tuple[str, str, Path]] = []
+    selected: list[SkillRecord] = []
     seen: set[str] = set()
 
     if bucket:
@@ -222,18 +334,29 @@ def select_skills(
             raise ValueError(f"Unsupported bucket '{bucket}'.")
 
         for b in buckets_to_read:
-            for name, path in all_skills[b].items():
+            for name in sorted(all_skills[b].keys()):
                 if name not in seen:
                     seen.add(name)
-                    selected.append((b, name, path))
+                    selected.append(all_skills[b][name])
+
+    if group_names:
+        by_group = available_groups(all_skills)
+        for grp in group_names:
+            if grp not in by_group:
+                known = ", ".join(by_group.keys()) if by_group else "(none)"
+                raise ValueError(f"Group '{grp}' not found in skills/custom/. Available groups: {known}")
+            for rec in by_group[grp]:
+                if rec.name not in seen:
+                    seen.add(rec.name)
+                    selected.append(rec)
 
     for name in skill_names:
         if name in seen:
             continue
-        match: tuple[str, Path] | None = None
+        match: SkillRecord | None = None
         for b in PROMOTED_BUCKETS:
             if name in all_skills[b]:
-                match = (b, all_skills[b][name])
+                match = all_skills[b][name]
                 break
         if match is None and name in all_skills["in-progress"]:
             if use_global:
@@ -242,13 +365,13 @@ def select_skills(
                 raise ValueError(
                     f"Skill '{name}' is in skills/in-progress/. Pass --allow-in-progress to test it in a workspace."
                 )
-            match = ("in-progress", all_skills["in-progress"][name])
+            match = all_skills["in-progress"][name]
         if match is None and name in all_skills["deprecated"]:
             raise ValueError(f"Skill '{name}' is deprecated and cannot be installed.")
         if match is None:
             raise ValueError(f"Skill '{name}' not found in skills/.")
         seen.add(name)
-        selected.append((match[0], name, match[1]))
+        selected.append(match)
 
     return selected
 
@@ -262,6 +385,7 @@ def install_one(
     force: bool,
     dry_run: bool,
     repo_root: Path = ROOT,
+    group: str | None = None,
 ) -> str:
     dest = target_dir / name
     exists = dest.exists() or is_link_or_junction(dest)
@@ -273,7 +397,8 @@ def install_one(
         if not dry_run:
             remove_entry(dest)
 
-    action = f"{'[DRY-RUN] ' if dry_run else ''}{mode}: {bucket}/{name} -> {dest}"
+    source_label = f"{bucket}/{group}/{name}" if group else f"{bucket}/{name}"
+    action = f"{'[DRY-RUN] ' if dry_run else ''}{mode}: {source_label} -> {dest}"
     if dry_run:
         return action
 
@@ -286,6 +411,7 @@ def install_one(
             "managed_by": MANAGED_BY,
             "source_repo": str(repo_root.resolve()),
             "bucket": bucket,
+            "group": group,
             "skill": name,
             "mode": "copy",
             "installed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -296,12 +422,38 @@ def install_one(
     return action
 
 
-def cmd_list(_args: argparse.Namespace) -> int:
+def cmd_list(args: argparse.Namespace) -> int:
     all_skills = discover_skills()
+    describe = bool(getattr(args, "describe", False))
+
+    def emit_section(header: str, records: list[SkillRecord]) -> None:
+        if not records:
+            print(f"{header}: (none)")
+            return
+        if not describe:
+            names = ", ".join(r.name for r in records)
+            print(f"{header}: {names}")
+        else:
+            print(f"{header}:")
+            for rec in records:
+                desc = rec.description or "(no description)"
+                print(f"  - {rec.name}: {desc}")
+
     for bucket in ALL_BUCKETS:
-        names = sorted(all_skills[bucket].keys())
-        label = ", ".join(names) if names else "(none)"
-        print(f"{bucket}: {label}")
+        records = sorted(all_skills[bucket].values(), key=lambda r: r.name)
+        if bucket != "custom":
+            emit_section(bucket, records)
+            continue
+
+        standalone = [r for r in records if r.group is None]
+        grouped = available_groups(all_skills)
+        if not standalone and not grouped:
+            print("custom: (none)")
+            continue
+        if standalone:
+            emit_section("custom (standalone)", standalone)
+        for grp, grp_records in grouped.items():
+            emit_section(f"custom/{grp}", grp_records)
     return 0
 
 
@@ -314,7 +466,7 @@ def cmd_mount_local(args: argparse.Namespace) -> int:
         dest=None,
         harnesses=harnesses,
     )
-    selected = [( "meta", name, path) for name, path in all_skills["meta"].items()]
+    selected = sorted(all_skills["meta"].values(), key=lambda r: r.name)
     for target_dir in target_dirs:
         if target_dir.is_dir():
             for child in sorted(target_dir.iterdir()):
@@ -322,15 +474,16 @@ def cmd_mount_local(args: argparse.Namespace) -> int:
                     print(f"{'[DRY-RUN] ' if args.dry_run else ''}prune stale: {child}")
                     if not args.dry_run:
                         remove_entry(child)
-        for bucket, name, src in selected:
+        for rec in selected:
             msg = install_one(
-                bucket=bucket,
-                name=name,
-                src=src,
+                bucket=rec.bucket,
+                name=rec.name,
+                src=rec.path,
                 target_dir=target_dir,
                 mode=args.mode,
                 force=args.force,
                 dry_run=args.dry_run,
+                group=rec.group,
             )
             print(msg)
     return 0
@@ -347,28 +500,31 @@ def cmd_install(args: argparse.Namespace) -> int:
         harnesses=harnesses,
     )
     skill_names = parse_csv(args.skills)
+    group_names = parse_csv(args.group)
     selected = select_skills(
         all_skills=all_skills,
         bucket=args.bucket,
+        groups=group_names,
         skill_names=skill_names,
         allow_in_progress=args.allow_in_progress,
         use_global=args.use_global,
     )
     if not selected:
-        print("No skills matched the requested bucket/filter.")
+        print("No skills matched the requested bucket/group/filter.")
         return 0
 
     mode = args.mode or ("link" if args.use_global else "copy")
     for target_dir in target_dirs:
-        for bucket, name, src in selected:
+        for rec in selected:
             msg = install_one(
-                bucket=bucket,
-                name=name,
-                src=src,
+                bucket=rec.bucket,
+                name=rec.name,
+                src=rec.path,
                 target_dir=target_dir,
                 mode=mode,
                 force=args.force,
                 dry_run=args.dry_run,
+                group=rec.group,
             )
             print(msg)
     return 0
@@ -385,21 +541,32 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         harnesses=harnesses,
     )
     skill_names = set(parse_csv(args.skills))
-    if not args.all_managed and not skill_names:
-        raise ValueError("Specify --skills <name1,name2> or --all to uninstall.")
+    group_names = set(parse_csv(args.group))
+    if not args.all_managed and not skill_names and not group_names:
+        raise ValueError("Specify --skills <name1,name2>, --group <g1,g2>, or --all to uninstall.")
+
+    if group_names:
+        all_skills = discover_skills()
+        by_group = available_groups(all_skills)
+        for grp in group_names:
+            for rec in by_group.get(grp, []):
+                skill_names.add(rec.name)
 
     removed = 0
     for target_dir in target_dirs:
         if not target_dir.is_dir():
             continue
         for child in sorted(target_dir.iterdir()):
-            if skill_names and child.name not in skill_names:
-                continue
+            if not args.all_managed:
+                matches_name = child.name in skill_names
+                matches_group = bool(group_names) and (installed_entry_group(child) in group_names)
+                if not (matches_name or matches_group):
+                    continue
             if not is_managed_entry(child):
-                if skill_names and args.force:
+                if (skill_names or group_names) and args.force:
                     pass
                 else:
-                    if skill_names:
+                    if skill_names or group_names:
                         print(f"skip unmanaged (use --force to remove): {child}")
                     continue
             print(f"{'[DRY-RUN] ' if args.dry_run else ''}remove: {child}")
@@ -419,19 +586,37 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         fake_home = tmp_path / "fake-home"
         fake_home.mkdir()
 
-        # Build an isolated fake repo with 1 meta skill and 1 in-progress skill
+        # Build an isolated fake repo with meta, standalone custom, grouped custom, and in-progress skills
         fake_repo = tmp_path / "forge"
         for b in ALL_BUCKETS:
             (fake_repo / "skills" / b).mkdir(parents=True)
         meta_skill = fake_repo / "skills" / "meta" / "alpha-meta"
         meta_skill.mkdir()
         (meta_skill / "SKILL.md").write_text("---\nname: alpha-meta\ndescription: Meta test.\n---\n", encoding="utf-8")
+
+        solo_custom = fake_repo / "skills" / "custom" / "solo-custom"
+        solo_custom.mkdir()
+        (solo_custom / "SKILL.md").write_text(
+            "---\nname: solo-custom\ndescription: Standalone custom test.\n---\n", encoding="utf-8"
+        )
+
+        kb_a = fake_repo / "skills" / "custom" / "kb-skills" / "gamma-kb"
+        kb_a.mkdir(parents=True)
+        (kb_a / "SKILL.md").write_text("---\nname: gamma-kb\ndescription: KB skill A.\n---\n", encoding="utf-8")
+
+        kb_b = fake_repo / "skills" / "custom" / "kb-skills" / "delta-kb"
+        kb_b.mkdir(parents=True)
+        (kb_b / "SKILL.md").write_text("---\nname: delta-kb\ndescription: KB skill B.\n---\n", encoding="utf-8")
+
         beta_skill = fake_repo / "skills" / "in-progress" / "beta-draft"
         beta_skill.mkdir()
         (beta_skill / "SKILL.md").write_text("---\nname: beta-draft\ndescription: Draft test.\n---\n", encoding="utf-8")
 
         all_skills = discover_skills(fake_repo)
         assert "alpha-meta" in all_skills["meta"]
+        assert "solo-custom" in all_skills["custom"] and all_skills["custom"]["solo-custom"].group is None
+        assert "gamma-kb" in all_skills["custom"] and all_skills["custom"]["gamma-kb"].group == "kb-skills"
+        assert "delta-kb" in all_skills["custom"] and all_skills["custom"]["delta-kb"].group == "kb-skills"
         assert "beta-draft" in all_skills["in-progress"]
 
         # 1. Deduplication for agents + antigravity on same workspace
@@ -442,15 +627,32 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         g_dirs = resolve_target_dirs(None, True, None, list(DEFAULT_GLOBAL_HARNESSES), home=fake_home)
         assert len(g_dirs) == 3
 
-        # 3. Copy mode + unmanaged protection
+        # 3. Group selection and flattened copy install
+        grp_selected = select_skills(
+            all_skills, bucket=None, groups=["kb-skills"], skill_names=[], allow_in_progress=False, use_global=False
+        )
+        assert [r.name for r in grp_selected] == ["delta-kb", "gamma-kb"]
+        try:
+            select_skills(
+                all_skills, bucket=None, groups=["missing-group"], skill_names=[], allow_in_progress=False, use_global=False
+            )
+            raise AssertionError("Expected ValueError for unknown group")
+        except ValueError:
+            pass
+
         target_dir = ws_dirs[0]
         unmanaged = target_dir / "find-skills"
         unmanaged.mkdir(parents=True)
         (unmanaged / "SKILL.md").write_text("unmanaged\n", encoding="utf-8")
 
-        install_one("meta", "alpha-meta", meta_skill, target_dir, "copy", False, False, repo_root=fake_repo)
-        assert (target_dir / "alpha-meta" / "SKILL.md").is_file()
-        assert is_managed_entry(target_dir / "alpha-meta", repo_root=fake_repo)
+        for rec in grp_selected:
+            install_one(
+                rec.bucket, rec.name, rec.path, target_dir, "copy", False, False, repo_root=fake_repo, group=rec.group
+            )
+        assert (target_dir / "gamma-kb" / "SKILL.md").is_file()
+        assert not (target_dir / "kb-skills").exists(), "Grouped skills must be flattened at install target"
+        assert is_managed_entry(target_dir / "gamma-kb", repo_root=fake_repo)
+        assert installed_entry_group(target_dir / "gamma-kb", repo_root=fake_repo) == "kb-skills"
         assert not is_managed_entry(unmanaged, repo_root=fake_repo)
 
         # Dry-run should not write
@@ -464,16 +666,19 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         except FileExistsError:
             pass
 
-        # 4. Link mode (NTFS junction on Windows, symlink on Unix) & safe removal
+        # 4. Link mode (NTFS junction on Windows, symlink on Unix) for grouped skill & safe removal
         link_target_dir = fake_ws / ".claude" / "skills"
-        install_one("meta", "alpha-meta", meta_skill, link_target_dir, "link", False, False, repo_root=fake_repo)
-        linked = link_target_dir / "alpha-meta"
+        install_one(
+            "custom", "gamma-kb", kb_a, link_target_dir, "link", False, False, repo_root=fake_repo, group="kb-skills"
+        )
+        linked = link_target_dir / "gamma-kb"
         assert is_link_or_junction(linked)
         assert (linked / "SKILL.md").is_file()
         assert is_managed_entry(linked, repo_root=fake_repo)
+        assert installed_entry_group(linked, repo_root=fake_repo) == "kb-skills"
         remove_entry(linked)
         assert not linked.exists()
-        assert (meta_skill / "SKILL.md").is_file(), "Removing link must never delete source skill"
+        assert (kb_a / "SKILL.md").is_file(), "Removing link must never delete source skill"
 
         # 5. in-progress guard checks
         for kwargs in (
@@ -488,7 +693,17 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
                 pass
 
         allowed = select_skills(all_skills, None, ["beta-draft"], allow_in_progress=True, use_global=False)
-        assert len(allowed) == 1 and allowed[0][1] == "beta-draft"
+        assert len(allowed) == 1 and allowed[0].name == "beta-draft"
+
+        # 6. Duplicate skill name across groups/buckets must fail discovery
+        dup_skill = fake_repo / "skills" / "custom" / "other-group" / "alpha-meta"
+        dup_skill.mkdir(parents=True)
+        (dup_skill / "SKILL.md").write_text("---\nname: alpha-meta\ndescription: Dup.\n---\n", encoding="utf-8")
+        try:
+            discover_skills(fake_repo)
+            raise AssertionError("Expected ValueError for duplicate skill name across buckets/groups")
+        except ValueError:
+            pass
 
     print("install_skills self-test PASSED.")
     return 0
@@ -498,7 +713,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Cross-platform skill installer for agent-skills forge")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_list = sub.add_parser("list", help="List available skills by bucket")
+    p_list = sub.add_parser("list", help="List available skills by bucket and domain group")
+    p_list.add_argument("--describe", action="store_true", help="Include 1-line frontmatter descriptions")
     p_list.set_defaults(func=cmd_list)
 
     p_mount = sub.add_parser("mount-local", help="Mount this repo's meta-skills into local .agents/skills")
@@ -508,8 +724,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_mount.add_argument("--dry-run", action="store_true", help="Print planned actions without writing")
     p_mount.set_defaults(func=cmd_mount_local)
 
-    p_inst = sub.add_parser("install", help="Install skills into a workspace, global harness dir, or custom dest")
+    p_inst = sub.add_parser("install", help="Install skills or groups into a workspace, global dir, or custom dest")
     p_inst.add_argument("--bucket", choices=("meta", "custom", "promoted", "in-progress"), default=None)
+    p_inst.add_argument("--group", default=None, help="Comma-separated custom domain group names (e.g. kb-skills)")
     p_inst.add_argument("--skills", default=None, help="Comma-separated skill names to install")
     p_inst.add_argument("--workspace", default=None, help="Target project workspace root")
     p_inst.add_argument("--global", dest="use_global", action="store_true", help="Install to global harness dirs")
@@ -536,13 +753,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_uninst.add_argument("--global", dest="use_global", action="store_true", help="Target global harness dirs")
     p_uninst.add_argument("--dest", default=None, help="Exact destination skills directory")
     p_uninst.add_argument("--harness", default=None, help="Comma-separated harnesses")
+    p_uninst.add_argument("--group", default=None, help="Comma-separated custom domain group names to remove")
     p_uninst.add_argument("--skills", default=None, help="Comma-separated skill names to remove")
     p_uninst.add_argument("--all", dest="all_managed", action="store_true", help="Remove all forge-managed skills")
     p_uninst.add_argument("--force", action="store_true", help="Also allow removing named unmanaged directories")
     p_uninst.add_argument("--dry-run", action="store_true", help="Print planned removals without deleting")
     p_uninst.set_defaults(func=cmd_uninstall)
 
-    p_self = sub.add_parser("self-test", help="Run isolated smoke tests for link, copy, guards, and uninstall")
+    p_self = sub.add_parser("self-test", help="Run isolated smoke tests for link, copy, groups, guards, and uninstall")
     p_self.set_defaults(func=cmd_self_test)
 
     return parser

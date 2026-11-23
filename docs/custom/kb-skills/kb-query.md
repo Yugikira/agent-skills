@@ -9,7 +9,7 @@
 ## Common questions
 
 **Can I deploy `kb-query` alone into another research project?**
-Yes. Run `python scripts/install_skills.py install --skills kb-query --workspace <project-dir>` (use `python3` on Unix). Pass your KB path once and `kb_search.py --save-kb-dir` remembers it in `.kb_root`.
+Yes. Run `python scripts/install_skills.py install --skills kb-query --workspace <project-dir>` (use `python3` on Unix), or install the full KB suite with `--group kb-skills`. Pass your KB path once and `kb_search.py --save-kb-dir` remembers it in `.kb_root`.
 
 **Does it still work on older KBs that use `[[wikilinks]]`?**
 Yes. `kb_search.py --deep` parses both standard relative Markdown links and legacy `[[wikilinks]]`, while synthesized responses emit standard Markdown file links.

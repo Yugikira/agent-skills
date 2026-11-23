@@ -29,7 +29,7 @@ python3 scripts/verify_repo.py
 3. Line-count budget (warns above 250 lines, fails above 300 lines).
 4. Zero em-dashes in skill and repo prose.
 5. Every relative markdown link resolves to an existing file.
-6. Promoted skills (`meta/`, `custom/`) are synced across top-level `README.md`, bucket `README.md`, and `docs/<bucket>/<name>.md` (with all 4 required headings); `meta/` skills are also synced in `skills/meta/skill-mode/SKILL.md`.
+6. Promoted skills (`meta/`, `custom/`, including 1-level `custom/<group>/` suites) have globally unique names, are synced across top-level `README.md`, bucket `README.md`, progressive-disclosure `docs/` indexes, and per-skill docs (4 required headings, zero orphan docs); `meta/` skills are also synced in `skills/meta/skill-mode/SKILL.md`.
 7. Eval suites under `evals/suites/*.json` contain zero blinding-leak terms in organic prompts.
 
 ## Live Drive

@@ -3,12 +3,15 @@
 
 Enforces:
 - Valid YAML frontmatter in every SKILL.md (name matches dir, description non-empty)
+- Global skill-name uniqueness across all buckets and custom domain groups
+- Optional 1-level domain grouping inside skills/custom/ (no depth > 2, no empty or mixed dirs)
 - Dual-harness invocation parity (disable-model-invocation: true <-> agents/openai.yaml)
 - Line budget (warn > 250 lines, fail > 300 lines)
 - Zero em-dashes in repo prose
 - All relative Markdown links resolve to existing files
-- Promoted skills (meta/, custom/) synced across README.md, bucket README.md,
-  and docs/<bucket>/<name>.md (4 required H2 headings); meta/ skills synced in skill-mode router
+- Progressive disclosure docs sync across README.md, bucket README.md, docs/README.md,
+  docs/<bucket>/README.md, docs/custom/<group>/README.md, and docs/<bucket>/[<group>/]<name>.md
+- Zero orphaned doc pages under docs/meta/ and docs/custom/
 - Non-promoted skills (in-progress/, deprecated/) excluded from top-level README.md and docs/
 - Zero blinding-leak terms in evals/suites/*.json candidate-visible fields
 """
@@ -26,6 +29,7 @@ NON_PROMOTED_BUCKETS = ("in-progress", "deprecated")
 ALL_BUCKETS = PROMOTED_BUCKETS + NON_PROMOTED_BUCKETS
 MAX_LINES_WARN = 250
 MAX_LINES_FAIL = 300
+KEBAB_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 REQUIRED_DOC_HEADINGS = (
     "## What it does",
     "## When to reach for it",
@@ -99,10 +103,109 @@ def check_relative_links(path: Path, text: str) -> None:
                 errors.append(f"{path.relative_to(ROOT)}:{idx}: broken relative link -> {target}")
 
 
+def validate_skill_package(
+    bucket: str,
+    group: str | None,
+    skill_dir: Path,
+    seen_names: dict[str, Path],
+) -> tuple[str, bool] | None:
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        errors.append(f"{skill_dir.relative_to(ROOT)}: missing SKILL.md")
+        return None
+
+    # Disallow nested skills inside a skill directory
+    for nested in sorted(skill_dir.iterdir()):
+        if nested.is_dir() and (nested / "SKILL.md").is_file():
+            errors.append(
+                f"{nested.relative_to(ROOT)}: nested skill directory inside skill '{skill_dir.relative_to(ROOT)}' is not allowed"
+            )
+
+    text = skill_md.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if len(lines) > MAX_LINES_FAIL:
+        errors.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds hard cap ({MAX_LINES_FAIL})")
+    elif len(lines) > MAX_LINES_WARN:
+        warnings.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds soft target ({MAX_LINES_WARN})")
+
+    meta, _ = parse_frontmatter(text, skill_md)
+    name = meta.get("name", "")
+    desc = meta.get("description", "")
+    if name != skill_dir.name:
+        errors.append(f"{skill_md.relative_to(ROOT)}: frontmatter name '{name}' != directory '{skill_dir.name}'")
+    if not KEBAB_RE.fullmatch(name):
+        errors.append(f"{skill_md.relative_to(ROOT)}: name '{name}' must be lowercase kebab-case")
+    if not desc:
+        errors.append(f"{skill_md.relative_to(ROOT)}: empty description")
+    elif len(desc) > 300:
+        warnings.append(f"{skill_md.relative_to(ROOT)}: description is {len(desc)} chars (aim for <= 300)")
+
+    if name:
+        if name in seen_names:
+            errors.append(
+                f"{skill_dir.relative_to(ROOT)}: duplicate skill name '{name}' (already defined at {seen_names[name].relative_to(ROOT)})"
+            )
+        else:
+            seen_names[name] = skill_dir
+
+    # Dual-harness invocation parity
+    user_invoked = meta.get("disable-model-invocation", "").lower() == "true"
+    openai_yaml = skill_dir / "agents" / "openai.yaml"
+    if user_invoked:
+        if not openai_yaml.exists():
+            errors.append(f"{skill_dir.relative_to(ROOT)}: user-invoked skill missing agents/openai.yaml")
+        else:
+            yaml_text = openai_yaml.read_text(encoding="utf-8")
+            if "allow_implicit_invocation: false" not in yaml_text:
+                errors.append(
+                    f"{openai_yaml.relative_to(ROOT)}: must set 'allow_implicit_invocation: false' for user-invoked skill"
+                )
+    else:
+        if openai_yaml.exists() and "allow_implicit_invocation: false" in openai_yaml.read_text(encoding="utf-8"):
+            errors.append(
+                f"{openai_yaml.relative_to(ROOT)}: sets allow_implicit_invocation: false but SKILL.md omits disable-model-invocation: true"
+            )
+
+    return name or skill_dir.name, user_invoked
+
+
+def validate_doc_page(doc_path: Path) -> None:
+    if not doc_path.exists():
+        errors.append(f"Missing docs page for promoted skill: {doc_path.relative_to(ROOT)}")
+        return
+    doc_text = doc_path.read_text(encoding="utf-8")
+    for heading in REQUIRED_DOC_HEADINGS:
+        if heading not in doc_text:
+            errors.append(f"{doc_path.relative_to(ROOT)}: missing required section '{heading}'")
+
+
 def check_skills() -> None:
     top_readme = (ROOT / "README.md").read_text(encoding="utf-8")
     router_path = ROOT / "skills/meta/skill-mode/SKILL.md"
     router_text = router_path.read_text(encoding="utf-8") if router_path.exists() else ""
+
+    # Level-1 and Level-2 progressive disclosure docs indexes
+    docs_root_readme = ROOT / "docs" / "README.md"
+    if not docs_root_readme.exists():
+        errors.append("Missing Level-1 docs index: docs/README.md")
+        docs_root_text = ""
+    else:
+        docs_root_text = docs_root_readme.read_text(encoding="utf-8")
+        for bucket in PROMOTED_BUCKETS:
+            if f"{bucket}/README.md" not in docs_root_text:
+                errors.append(f"docs/README.md: missing link to '{bucket}/README.md'")
+
+    bucket_docs_text: dict[str, str] = {}
+    for bucket in PROMOTED_BUCKETS:
+        b_doc_readme = ROOT / "docs" / bucket / "README.md"
+        if not b_doc_readme.exists():
+            errors.append(f"Missing Level-2 docs index: docs/{bucket}/README.md")
+            bucket_docs_text[bucket] = ""
+        else:
+            bucket_docs_text[bucket] = b_doc_readme.read_text(encoding="utf-8")
+
+    seen_names: dict[str, Path] = {}
+    expected_docs: set[Path] = set()
 
     for bucket in ALL_BUCKETS:
         bucket_dir = ROOT / "skills" / bucket
@@ -116,70 +219,101 @@ def check_skills() -> None:
         else:
             bucket_readme = bucket_readme_path.read_text(encoding="utf-8")
 
-        for skill_dir in sorted(p for p in bucket_dir.iterdir() if p.is_dir()):
-            skill_md = skill_dir / "SKILL.md"
-            if not skill_md.exists():
-                errors.append(f"{skill_dir.relative_to(ROOT)}: missing SKILL.md")
-                continue
-            text = skill_md.read_text(encoding="utf-8")
-            lines = text.splitlines()
-            if len(lines) > MAX_LINES_FAIL:
-                errors.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds hard cap ({MAX_LINES_FAIL})")
-            elif len(lines) > MAX_LINES_WARN:
-                warnings.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds soft target ({MAX_LINES_WARN})")
+        child_dirs = sorted(p for p in bucket_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
 
-            meta, _ = parse_frontmatter(text, skill_md)
-            name = meta.get("name", "")
-            desc = meta.get("description", "")
-            if name != skill_dir.name:
-                errors.append(f"{skill_md.relative_to(ROOT)}: frontmatter name '{name}' != directory '{skill_dir.name}'")
-            if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
-                errors.append(f"{skill_md.relative_to(ROOT)}: name '{name}' must be lowercase kebab-case")
-            if not desc:
-                errors.append(f"{skill_md.relative_to(ROOT)}: empty description")
-            elif len(desc) > 300:
-                warnings.append(f"{skill_md.relative_to(ROOT)}: description is {len(desc)} chars (aim for <= 300)")
+        for child in child_dirs:
+            has_skill_md = (child / "SKILL.md").is_file()
 
-            # Dual-harness invocation parity
-            user_invoked = meta.get("disable-model-invocation", "").lower() == "true"
-            openai_yaml = skill_dir / "agents" / "openai.yaml"
-            if user_invoked:
-                if not openai_yaml.exists():
-                    errors.append(f"{skill_dir.relative_to(ROOT)}: user-invoked skill missing agents/openai.yaml")
-                else:
-                    yaml_text = openai_yaml.read_text(encoding="utf-8")
-                    if "allow_implicit_invocation: false" not in yaml_text:
+            if bucket != "custom" or has_skill_md:
+                # Standalone skill (or non-custom bucket skill)
+                if validate_skill_package(bucket, None, child, seen_names) is None:
+                    continue
+
+                rel_link = f"skills/{bucket}/{child.name}/SKILL.md"
+                doc_path = ROOT / "docs" / bucket / f"{child.name}.md"
+                if bucket in PROMOTED_BUCKETS:
+                    expected_docs.add(doc_path.resolve())
+                    if rel_link not in top_readme:
+                        errors.append(f"README.md: missing link to promoted skill '{rel_link}'")
+                    if f"{child.name}/SKILL.md" not in bucket_readme:
+                        errors.append(f"skills/{bucket}/README.md: missing link to '{child.name}/SKILL.md'")
+                    if f"{child.name}.md" not in bucket_docs_text[bucket]:
+                        errors.append(f"docs/{bucket}/README.md: missing link to '{child.name}.md'")
+                    if f"skills/{bucket}/{child.name}/SKILL.md" not in bucket_docs_text[bucket]:
                         errors.append(
-                            f"{openai_yaml.relative_to(ROOT)}: must set 'allow_implicit_invocation: false' for user-invoked skill"
+                            f"docs/{bucket}/README.md: missing link to 'skills/{bucket}/{child.name}/SKILL.md'"
                         )
-            else:
-                if openai_yaml.exists() and "allow_implicit_invocation: false" in openai_yaml.read_text(encoding="utf-8"):
-                    errors.append(
-                        f"{openai_yaml.relative_to(ROOT)}: sets allow_implicit_invocation: false but SKILL.md omits disable-model-invocation: true"
-                    )
-
-            # Promoted vs non-promoted sync checks
-            rel_link = f"skills/{bucket}/{skill_dir.name}/SKILL.md"
-            doc_path = ROOT / "docs" / bucket / f"{skill_dir.name}.md"
-            if bucket in PROMOTED_BUCKETS:
-                if rel_link not in top_readme:
-                    errors.append(f"README.md: missing link to promoted skill '{rel_link}'")
-                if f"{skill_dir.name}/SKILL.md" not in bucket_readme:
-                    errors.append(f"skills/{bucket}/README.md: missing link to '{skill_dir.name}/SKILL.md'")
-                if not doc_path.exists():
-                    errors.append(f"Missing docs page for promoted skill: {doc_path.relative_to(ROOT)}")
+                    validate_doc_page(doc_path)
+                    if bucket == "meta" and child.name != "skill-mode" and child.name not in router_text:
+                        errors.append(f"skills/meta/skill-mode/SKILL.md: router does not mention meta skill '{child.name}'")
                 else:
-                    doc_text = doc_path.read_text(encoding="utf-8")
-                    for heading in REQUIRED_DOC_HEADINGS:
-                        if heading not in doc_text:
-                            errors.append(f"{doc_path.relative_to(ROOT)}: missing required section '{heading}'")
-                if bucket == "meta" and skill_dir.name != "skill-mode" and skill_dir.name not in router_text:
-                    errors.append(f"skills/meta/skill-mode/SKILL.md: router does not mention meta skill '{skill_dir.name}'")
+                    if rel_link in top_readme:
+                        errors.append(f"README.md: non-promoted skill '{rel_link}' must not appear in top-level README.md")
+                    if doc_path.exists():
+                        errors.append(f"Non-promoted skill should not have docs page: {doc_path.relative_to(ROOT)}")
+                continue
+
+            # Custom domain group directory (1-level grouping inside skills/custom/)
+            group = child.name
+            if not KEBAB_RE.fullmatch(group):
+                errors.append(f"{child.relative_to(ROOT)}: group directory name '{group}' must be lowercase kebab-case")
+
+            dup_group_readme = child / "README.md"
+            if dup_group_readme.exists():
+                errors.append(
+                    f"{dup_group_readme.relative_to(ROOT)}: duplicate group README not allowed; use docs/custom/{group}/README.md"
+                )
+
+            sub_dirs = sorted(
+                p for p in child.iterdir() if p.is_dir() and not p.name.startswith(".") and p.name != "__pycache__"
+            )
+            if not sub_dirs:
+                errors.append(f"{child.relative_to(ROOT)}: empty domain group directory (missing child skills)")
+                continue
+
+            group_doc_readme = ROOT / "docs" / "custom" / group / "README.md"
+            expected_docs.add(group_doc_readme.resolve())
+            if not group_doc_readme.exists():
+                errors.append(f"Missing domain group overview: {group_doc_readme.relative_to(ROOT)}")
+                group_doc_text = ""
             else:
-                if rel_link in top_readme:
-                    errors.append(f"README.md: non-promoted skill '{rel_link}' must not appear in top-level README.md")
-                if doc_path.exists():
-                    errors.append(f"Non-promoted skill should not have docs page: {doc_path.relative_to(ROOT)}")
+                group_doc_text = group_doc_readme.read_text(encoding="utf-8")
+
+            group_doc_rel = f"docs/custom/{group}/README.md"
+            if group_doc_rel not in top_readme:
+                errors.append(f"README.md: missing link to custom domain group '{group_doc_rel}'")
+            if group_doc_rel not in bucket_readme:
+                errors.append(f"skills/custom/README.md: missing link to custom domain group '{group_doc_rel}'")
+            if f"{group}/README.md" not in bucket_docs_text["custom"]:
+                errors.append(f"docs/custom/README.md: missing link to '{group}/README.md'")
+
+            for skill_dir in sub_dirs:
+                if validate_skill_package("custom", group, skill_dir, seen_names) is None:
+                    continue
+
+                doc_path = ROOT / "docs" / "custom" / group / f"{skill_dir.name}.md"
+                expected_docs.add(doc_path.resolve())
+                validate_doc_page(doc_path)
+
+                if group_doc_text:
+                    if f"{skill_dir.name}.md" not in group_doc_text:
+                        errors.append(f"{group_doc_readme.relative_to(ROOT)}: missing link to '{skill_dir.name}.md'")
+                    skill_rel = f"skills/custom/{group}/{skill_dir.name}/SKILL.md"
+                    if skill_rel not in group_doc_text:
+                        errors.append(f"{group_doc_readme.relative_to(ROOT)}: missing link to '{skill_rel}'")
+
+    # Orphan doc check under docs/meta/ and docs/custom/
+    for bucket in PROMOTED_BUCKETS:
+        docs_bdir = ROOT / "docs" / bucket
+        if not docs_bdir.is_dir():
+            continue
+        bucket_index = (docs_bdir / "README.md").resolve()
+        for md_file in sorted(docs_bdir.rglob("*.md")):
+            resolved = md_file.resolve()
+            if resolved == bucket_index:
+                continue
+            if resolved not in expected_docs:
+                errors.append(f"Orphaned doc page (no matching promoted skill/group): {md_file.relative_to(ROOT)}")
 
 
 def check_markdown_files() -> None:
