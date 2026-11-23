@@ -77,10 +77,19 @@ def check_em_dashes(path: Path, text: str) -> None:
 
 def check_relative_links(path: Path, text: str) -> None:
     link_re = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+    in_code_block = False
     for idx, line in enumerate(text.splitlines(), 1):
-        for match in link_re.finditer(line):
+        if line.strip().startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        cleaned_line = re.sub(r"`[^`]*`", "", line)
+        for match in link_re.finditer(cleaned_line):
             target = match.group(1).strip()
             if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            if any(ch in target for ch in ("{", "}", "<", ">")):
                 continue
             target_path = target.split("#", 1)[0]
             if not target_path:
