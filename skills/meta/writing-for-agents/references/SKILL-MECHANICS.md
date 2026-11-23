@@ -41,4 +41,4 @@ Rules enforced by `scripts/verify_repo.py`:
 When adding, renaming, promoting, or removing a user-reachable skill:
 1. Update `skills/meta/skill-mode/SKILL.md` so the router map never lies.
 2. Update `README.md`, the bucket `README.md`, and `docs/<bucket>/<name>.md` for promoted skills.
-3. Run `bash scripts/link-skills.sh` to refresh local symlinks.
+3. If updating `skills/meta/`, run `python3 scripts/install_skills.py mount-local` to refresh this repo's local `.agents/skills/` mount. Deploy `skills/custom/` skills on demand via `scripts/install_skills.py install`.

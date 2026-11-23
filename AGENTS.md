@@ -38,10 +38,14 @@ Every `SKILL.md` is either:
 
 ## Verification & Promotion Gate
 
-Run `python3 scripts/verify_repo.py` after any edit to skills, docs, or eval suites. A change is not done until `verify_repo.py` exits 0.
+Run `python3 scripts/verify_repo.py` after any edit to skills, docs, or eval suites (on Windows where `python3` is not mapped, use `python`). A change is not done until `verify_repo.py` exits 0.
 
 Before promoting a skill from `skills/in-progress/` or merging a behavioral edit to a promoted skill, run a blinded A/B evaluation with `skills/meta/ab-eval-skill/SKILL.md` and `scripts/ab_harness.py`, and record the verdict in `evals/results/eval-log.tsv`.
 
-## Local Linking
+## Skill Deployment (Opt-In)
 
-Run `bash scripts/link-skills.sh` after adding, removing, renaming, or promoting a skill to refresh symlinks in `~/.claude/skills`, `~/.cursor/skills`, and `~/.agents/skills`.
+Do not automatically link or copy skills into global directories after edits or promotions.
+
+- Inside this repo, mount `skills/meta/` locally (gitignored `.agents/skills/`) with `python3 scripts/install_skills.py mount-local`.
+- Deploy promoted skills on demand to a target project workspace (defaults to copy) or explicitly to `--global` (opt-in) with `python3 scripts/install_skills.py install`.
+- Skills in `skills/in-progress/` are blocked by default and can only be installed into a workspace with `--allow-in-progress` (never globally).

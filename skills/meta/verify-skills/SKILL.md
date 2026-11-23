@@ -34,11 +34,12 @@ python3 scripts/verify_repo.py
 
 ## Live Drive
 
-Whenever `scripts/ab_harness.py`, `scripts/new_skill.py`, or `scripts/link-skills.sh` changes, exercise them live in an isolated temp directory:
+Whenever `scripts/ab_harness.py`, `scripts/new_skill.py`, or `scripts/install_skills.py` changes, exercise them live in an isolated temp directory:
 
 ```bash
 python3 scripts/new_skill.py smoke-check --mode user --goal "Smoke test" --dry-run
 python3 scripts/ab_harness.py self-test
+python3 scripts/install_skills.py self-test
 ```
 
 ## Evidence & Cleanup
