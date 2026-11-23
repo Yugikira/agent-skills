@@ -4,12 +4,15 @@ This repository stores, verifies, refines, and A/B tests agent skills. `AGENTS.m
 
 ## Directory Layout & Buckets
 
-Skills live under `skills/` in four buckets:
+Skills live under `skills/` in five buckets:
 
 - `skills/meta/`: promoted meta-skills that create, verify, refine, and A/B test skills.
-- `skills/custom/`: promoted domain skills. Related skills may be grouped 1 level deep (`skills/custom/<group>/<skill-name>/`); standalone skills live directly at `skills/custom/<skill-name>/`. Skill names must be globally unique across all buckets and groups.
+- `skills/custom/`: promoted domain skills. Related skills may be grouped 1 level deep (`skills/custom/<group>/<skill-name>/`); standalone skills live directly at `skills/custom/<skill-name>/`.
+- `skills/external/`: curated third-party skills vendored from upstream Git repositories via `scripts/external_skills.py` and pinned in `skills/external/manifest.json`. Supports optional 1-level grouping (`skills/external/<group>/<skill-name>/`) sharing logical `--group` names with `skills/custom/`, auto-synced to `docs/external/README.md`. Checked for frontmatter, global name uniqueness, and manifest sync; exempt from local prose style caps.
 - `skills/in-progress/`: beta skills under development or A/B evaluation. Not linked or shipped until promoted.
 - `skills/deprecated/`: retired skills kept for reference. Not linked or shipped.
+
+Skill names must be globally unique across all five buckets and groups.
 
 Progressive-disclosure docs live under `docs/` (`docs/README.md` -> `docs/<bucket>/README.md` -> `docs/custom/<group>/README.md` -> per-skill doc). Every promoted skill (`meta/`, `custom/`) must satisfy:
 
@@ -47,5 +50,5 @@ Before promoting a skill from `skills/in-progress/` or merging a behavioral edit
 Do not automatically link or copy skills into global directories after edits or promotions.
 
 - Inside this repo, mount `skills/meta/` locally (gitignored `.agents/skills/`) with `python3 scripts/install_skills.py mount-local`.
-- Deploy promoted skills on demand (by `--skills`, `--group`, or `--bucket`) to a target project workspace (defaults to copy) or explicitly to `--global` (opt-in) with `python3 scripts/install_skills.py install`. Grouped skills are always flattened to `<target>/<skill-name>/` on install.
+- Deploy skills on demand (by `--skills`, `--group`, or `--bucket`) to a target project workspace (defaults to copy) or explicitly to `--global` (opt-in) with `python3 scripts/install_skills.py install`. Grouped skills are always flattened to `<target>/<skill-name>/` on install. `--bucket promoted` installs `meta/` and `custom/` only; external skills deploy via `--group`, `--skills`, or `--bucket external` (combine `--bucket custom --group <g>` or `--bucket external --group <g>` to scope a group to one bucket).
 - Skills in `skills/in-progress/` are blocked by default and can only be installed into a workspace with `--allow-in-progress` (never globally).

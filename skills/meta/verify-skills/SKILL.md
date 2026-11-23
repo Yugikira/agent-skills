@@ -29,17 +29,18 @@ python3 scripts/verify_repo.py
 3. Line-count budget (warns above 250 lines, fails above 300 lines).
 4. Zero em-dashes in skill and repo prose.
 5. Every relative markdown link resolves to an existing file.
-6. Promoted skills (`meta/`, `custom/`, including 1-level `custom/<group>/` suites) have globally unique names, are synced across top-level `README.md`, bucket `README.md`, progressive-disclosure `docs/` indexes, and per-skill docs (4 required headings, zero orphan docs); `meta/` skills are also synced in `skills/meta/skill-mode/SKILL.md`.
+6. Promoted skills (`meta/`, `custom/`, including 1-level `custom/<group>/` suites) and vendored `external/` skills have globally unique names; promoted skills are synced across top-level `README.md`, bucket `README.md`, progressive-disclosure `docs/` indexes, and per-skill docs (4 required headings, zero orphan docs); `external/` skills are synced two-way with `skills/external/manifest.json` and `docs/external/README.md`; `meta/` skills are also synced in `skills/meta/skill-mode/SKILL.md`.
 7. Eval suites under `evals/suites/*.json` contain zero blinding-leak terms in organic prompts.
 
 ## Live Drive
 
-Whenever `scripts/ab_harness.py`, `scripts/new_skill.py`, or `scripts/install_skills.py` changes, exercise them live in an isolated temp directory:
+Whenever `scripts/ab_harness.py`, `scripts/new_skill.py`, `scripts/install_skills.py`, or `scripts/external_skills.py` changes, exercise them live in an isolated temp directory:
 
 ```bash
 python3 scripts/new_skill.py smoke-check --mode user --goal "Smoke test" --dry-run
 python3 scripts/ab_harness.py self-test
 python3 scripts/install_skills.py self-test
+python3 scripts/external_skills.py self-test
 ```
 
 ## Evidence & Cleanup

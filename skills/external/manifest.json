@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "name": "grill-me",
+      "group": "productivity",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/productivity/grill-me",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-23T11:50:17Z",
+      "summary": "A relentless interview to sharpen a plan or design."
+    },
+    {
+      "name": "grilling",
+      "group": "productivity",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/productivity/grilling",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-23T11:50:22Z",
+      "summary": "Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases."
+    },
+    {
+      "name": "handoff",
+      "group": "productivity",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/productivity/handoff",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-23T11:50:26Z",
+      "summary": "Compact the current conversation into a handoff document for another agent to pick up."
+    },
+    {
+      "name": "teach",
+      "group": "productivity",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/productivity/teach",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-23T11:50:30Z",
+      "summary": "Teach the user a new skill or concept, within this workspace."
+    }
+  ]
+}

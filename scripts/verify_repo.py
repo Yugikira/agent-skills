@@ -3,15 +3,16 @@
 
 Enforces:
 - Valid YAML frontmatter in every SKILL.md (name matches dir, description non-empty)
-- Global skill-name uniqueness across all buckets and custom domain groups
-- Optional 1-level domain grouping inside skills/custom/ (no depth > 2, no empty or mixed dirs)
-- Dual-harness invocation parity (disable-model-invocation: true <-> agents/openai.yaml)
-- Line budget (warn > 250 lines, fail > 300 lines)
-- Zero em-dashes in repo prose
-- All relative Markdown links resolve to existing files
+- Global skill-name uniqueness across all buckets (meta, custom, external, in-progress, deprecated)
+- Optional 1-level domain grouping inside skills/custom/ and skills/external/ (no depth > 2, no empty or mixed dirs)
+- Dual-harness invocation parity (disable-model-invocation: true <-> agents/openai.yaml) for owned skills
+- Line budget (warn > 250 lines, fail > 300 lines) for owned skills
+- Zero em-dashes and resolved relative Markdown links in owned repo prose
 - Progressive disclosure docs sync across README.md, bucket README.md, docs/README.md,
   docs/<bucket>/README.md, docs/custom/<group>/README.md, and docs/<bucket>/[<group>/]<name>.md
-- Zero orphaned doc pages under docs/meta/ and docs/custom/
+- Two-way sync between skills/external/ on disk, skills/external/manifest.json, and docs/external/README.md
+  (vendored upstream skill packages are exempt from local style rules)
+- Zero orphaned doc pages under docs/meta/, docs/custom/, and docs/external/
 - Non-promoted skills (in-progress/, deprecated/) excluded from top-level README.md and docs/
 - Zero blinding-leak terms in evals/suites/*.json candidate-visible fields
 """
@@ -25,17 +26,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PROMOTED_BUCKETS = ("meta", "custom")
+EXTERNAL_BUCKET = "external"
 NON_PROMOTED_BUCKETS = ("in-progress", "deprecated")
-ALL_BUCKETS = PROMOTED_BUCKETS + NON_PROMOTED_BUCKETS
+ALL_BUCKETS = PROMOTED_BUCKETS + (EXTERNAL_BUCKET,) + NON_PROMOTED_BUCKETS
 MAX_LINES_WARN = 250
 MAX_LINES_FAIL = 300
 KEBAB_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+DOCS_EXTERNAL_START = "<!-- external-skills:start -->"
+DOCS_EXTERNAL_END = "<!-- external-skills:end -->"
 REQUIRED_DOC_HEADINGS = (
     "## What it does",
     "## When to reach for it",
     "## Common questions",
     "## It's working if",
 )
+REQUIRED_MANIFEST_FIELDS = ("name", "repo", "subpath", "ref", "commit", "fetched_at")
 BANNED_BLINDING_WORDS = (
     "eval",
     "test",
@@ -108,6 +113,7 @@ def validate_skill_package(
     group: str | None,
     skill_dir: Path,
     seen_names: dict[str, Path],
+    strict: bool = True,
 ) -> tuple[str, bool] | None:
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.exists():
@@ -122,11 +128,12 @@ def validate_skill_package(
             )
 
     text = skill_md.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    if len(lines) > MAX_LINES_FAIL:
-        errors.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds hard cap ({MAX_LINES_FAIL})")
-    elif len(lines) > MAX_LINES_WARN:
-        warnings.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds soft target ({MAX_LINES_WARN})")
+    if strict:
+        lines = text.splitlines()
+        if len(lines) > MAX_LINES_FAIL:
+            errors.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds hard cap ({MAX_LINES_FAIL})")
+        elif len(lines) > MAX_LINES_WARN:
+            warnings.append(f"{skill_md.relative_to(ROOT)}: {len(lines)} lines exceeds soft target ({MAX_LINES_WARN})")
 
     meta, _ = parse_frontmatter(text, skill_md)
     name = meta.get("name", "")
@@ -137,7 +144,7 @@ def validate_skill_package(
         errors.append(f"{skill_md.relative_to(ROOT)}: name '{name}' must be lowercase kebab-case")
     if not desc:
         errors.append(f"{skill_md.relative_to(ROOT)}: empty description")
-    elif len(desc) > 300:
+    elif strict and len(desc) > 300:
         warnings.append(f"{skill_md.relative_to(ROOT)}: description is {len(desc)} chars (aim for <= 300)")
 
     if name:
@@ -148,23 +155,24 @@ def validate_skill_package(
         else:
             seen_names[name] = skill_dir
 
-    # Dual-harness invocation parity
     user_invoked = meta.get("disable-model-invocation", "").lower() == "true"
-    openai_yaml = skill_dir / "agents" / "openai.yaml"
-    if user_invoked:
-        if not openai_yaml.exists():
-            errors.append(f"{skill_dir.relative_to(ROOT)}: user-invoked skill missing agents/openai.yaml")
+    if strict:
+        # Dual-harness invocation parity (owned skills only)
+        openai_yaml = skill_dir / "agents" / "openai.yaml"
+        if user_invoked:
+            if not openai_yaml.exists():
+                errors.append(f"{skill_dir.relative_to(ROOT)}: user-invoked skill missing agents/openai.yaml")
+            else:
+                yaml_text = openai_yaml.read_text(encoding="utf-8")
+                if "allow_implicit_invocation: false" not in yaml_text:
+                    errors.append(
+                        f"{openai_yaml.relative_to(ROOT)}: must set 'allow_implicit_invocation: false' for user-invoked skill"
+                    )
         else:
-            yaml_text = openai_yaml.read_text(encoding="utf-8")
-            if "allow_implicit_invocation: false" not in yaml_text:
+            if openai_yaml.exists() and "allow_implicit_invocation: false" in openai_yaml.read_text(encoding="utf-8"):
                 errors.append(
-                    f"{openai_yaml.relative_to(ROOT)}: must set 'allow_implicit_invocation: false' for user-invoked skill"
+                    f"{openai_yaml.relative_to(ROOT)}: sets allow_implicit_invocation: false but SKILL.md omits disable-model-invocation: true"
                 )
-    else:
-        if openai_yaml.exists() and "allow_implicit_invocation: false" in openai_yaml.read_text(encoding="utf-8"):
-            errors.append(
-                f"{openai_yaml.relative_to(ROOT)}: sets allow_implicit_invocation: false but SKILL.md omits disable-model-invocation: true"
-            )
 
     return name or skill_dir.name, user_invoked
 
@@ -179,6 +187,104 @@ def validate_doc_page(doc_path: Path) -> None:
             errors.append(f"{doc_path.relative_to(ROOT)}: missing required section '{heading}'")
 
 
+def check_external_bucket(seen_names: dict[str, Path], external_docs_text: str) -> None:
+    ext_dir = ROOT / "skills" / EXTERNAL_BUCKET
+    if not ext_dir.exists():
+        errors.append("Missing bucket directory: skills/external")
+        return
+    if not (ext_dir / "README.md").exists():
+        errors.append("Missing bucket README: skills/external/README.md")
+
+    # Validate manifest.json
+    mpath = ext_dir / "manifest.json"
+    manifest_by_name: dict[str, dict] = {}
+    if not mpath.exists():
+        errors.append("Missing external manifest: skills/external/manifest.json")
+    else:
+        try:
+            data = json.loads(mpath.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"skills/external/manifest.json: invalid JSON ({exc})")
+            data = None
+        if isinstance(data, dict):
+            if "schema_version" not in data or not isinstance(data.get("skills"), list):
+                errors.append("skills/external/manifest.json: must contain 'schema_version' and 'skills' list")
+            else:
+                for idx, entry in enumerate(data["skills"]):
+                    if not isinstance(entry, dict):
+                        errors.append(f"skills/external/manifest.json: skills[{idx}] must be an object")
+                        continue
+                    for field in REQUIRED_MANIFEST_FIELDS:
+                        if not entry.get(field):
+                            errors.append(
+                                f"skills/external/manifest.json: entry '{entry.get('name', idx)}' missing required field '{field}'"
+                            )
+                    ename = str(entry.get("name", ""))
+                    if ename:
+                        if ename in manifest_by_name:
+                            errors.append(f"skills/external/manifest.json: duplicate entry '{ename}'")
+                        else:
+                            manifest_by_name[ename] = entry
+                    egroup = entry.get("group")
+                    if egroup is not None and not KEBAB_RE.fullmatch(str(egroup)):
+                        errors.append(
+                            f"skills/external/manifest.json: entry '{ename}' group '{egroup}' must be lowercase kebab-case"
+                        )
+        elif data is not None:
+            errors.append("skills/external/manifest.json: top-level JSON value must be an object")
+
+    # Scan skills/external/ on disk (optional 1-level grouping, relaxed style checks)
+    on_disk: dict[str, str | None] = {}
+    child_dirs = sorted(p for p in ext_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
+    for child in child_dirs:
+        if (child / "SKILL.md").is_file():
+            res = validate_skill_package(EXTERNAL_BUCKET, None, child, seen_names, strict=False)
+            if res is not None:
+                on_disk[child.name] = None
+            continue
+
+        # 1-level domain group under skills/external/
+        group = child.name
+        if not KEBAB_RE.fullmatch(group):
+            errors.append(f"{child.relative_to(ROOT)}: group directory name '{group}' must be lowercase kebab-case")
+        dup_readme = child / "README.md"
+        if dup_readme.exists():
+            errors.append(
+                f"{dup_readme.relative_to(ROOT)}: duplicate group README not allowed; use docs/external/README.md"
+            )
+        sub_dirs = sorted(
+            p for p in child.iterdir() if p.is_dir() and not p.name.startswith(".") and p.name != "__pycache__"
+        )
+        if not sub_dirs:
+            errors.append(f"{child.relative_to(ROOT)}: empty domain group directory (missing child skills)")
+            continue
+        for skill_dir in sub_dirs:
+            res = validate_skill_package(EXTERNAL_BUCKET, group, skill_dir, seen_names, strict=False)
+            if res is not None:
+                on_disk[skill_dir.name] = group
+
+    # Two-way sync between on-disk external skills and manifest.json
+    for sname, sgroup in sorted(on_disk.items()):
+        if sname not in manifest_by_name:
+            errors.append(f"skills/external: skill '{sname}' on disk is missing from skills/external/manifest.json")
+        else:
+            mgroup = manifest_by_name[sname].get("group")
+            if mgroup != sgroup:
+                errors.append(
+                    f"skills/external/manifest.json: skill '{sname}' group '{mgroup}' != on-disk group '{sgroup}'"
+                )
+
+    for ename, entry in sorted(manifest_by_name.items()):
+        egroup = entry.get("group")
+        if ename not in on_disk:
+            expected_rel = f"skills/external/{egroup}/{ename}" if egroup else f"skills/external/{ename}"
+            errors.append(f"skills/external/manifest.json: entry '{ename}' missing on disk at {expected_rel}")
+        if external_docs_text:
+            expected_link = f"skills/external/{egroup}/{ename}/SKILL.md" if egroup else f"skills/external/{ename}/SKILL.md"
+            if expected_link not in external_docs_text:
+                errors.append(f"docs/external/README.md: missing link to vendored skill '{expected_link}'")
+
+
 def check_skills() -> None:
     top_readme = (ROOT / "README.md").read_text(encoding="utf-8")
     router_path = ROOT / "skills/meta/skill-mode/SKILL.md"
@@ -191,12 +297,12 @@ def check_skills() -> None:
         docs_root_text = ""
     else:
         docs_root_text = docs_root_readme.read_text(encoding="utf-8")
-        for bucket in PROMOTED_BUCKETS:
+        for bucket in PROMOTED_BUCKETS + (EXTERNAL_BUCKET,):
             if f"{bucket}/README.md" not in docs_root_text:
                 errors.append(f"docs/README.md: missing link to '{bucket}/README.md'")
 
     bucket_docs_text: dict[str, str] = {}
-    for bucket in PROMOTED_BUCKETS:
+    for bucket in PROMOTED_BUCKETS + (EXTERNAL_BUCKET,):
         b_doc_readme = ROOT / "docs" / bucket / "README.md"
         if not b_doc_readme.exists():
             errors.append(f"Missing Level-2 docs index: docs/{bucket}/README.md")
@@ -204,10 +310,16 @@ def check_skills() -> None:
         else:
             bucket_docs_text[bucket] = b_doc_readme.read_text(encoding="utf-8")
 
+    ext_docs_text = bucket_docs_text.get(EXTERNAL_BUCKET, "")
+    if ext_docs_text and (DOCS_EXTERNAL_START not in ext_docs_text or DOCS_EXTERNAL_END not in ext_docs_text):
+        errors.append(
+            f"docs/external/README.md: missing generator markers '{DOCS_EXTERNAL_START}' / '{DOCS_EXTERNAL_END}'"
+        )
+
     seen_names: dict[str, Path] = {}
     expected_docs: set[Path] = set()
 
-    for bucket in ALL_BUCKETS:
+    for bucket in PROMOTED_BUCKETS + NON_PROMOTED_BUCKETS:
         bucket_dir = ROOT / "skills" / bucket
         if not bucket_dir.exists():
             errors.append(f"Missing bucket directory: skills/{bucket}")
@@ -226,7 +338,7 @@ def check_skills() -> None:
 
             if bucket != "custom" or has_skill_md:
                 # Standalone skill (or non-custom bucket skill)
-                if validate_skill_package(bucket, None, child, seen_names) is None:
+                if validate_skill_package(bucket, None, child, seen_names, strict=True) is None:
                     continue
 
                 rel_link = f"skills/{bucket}/{child.name}/SKILL.md"
@@ -288,7 +400,7 @@ def check_skills() -> None:
                 errors.append(f"docs/custom/README.md: missing link to '{group}/README.md'")
 
             for skill_dir in sub_dirs:
-                if validate_skill_package("custom", group, skill_dir, seen_names) is None:
+                if validate_skill_package("custom", group, skill_dir, seen_names, strict=True) is None:
                     continue
 
                 doc_path = ROOT / "docs" / "custom" / group / f"{skill_dir.name}.md"
@@ -302,8 +414,11 @@ def check_skills() -> None:
                     if skill_rel not in group_doc_text:
                         errors.append(f"{group_doc_readme.relative_to(ROOT)}: missing link to '{skill_rel}'")
 
-    # Orphan doc check under docs/meta/ and docs/custom/
-    for bucket in PROMOTED_BUCKETS:
+    # Validate external vendored bucket (shares global seen_names uniqueness check)
+    check_external_bucket(seen_names, ext_docs_text)
+
+    # Orphan doc check under docs/meta/, docs/custom/, and docs/external/
+    for bucket in PROMOTED_BUCKETS + (EXTERNAL_BUCKET,):
         docs_bdir = ROOT / "docs" / bucket
         if not docs_bdir.is_dir():
             continue
@@ -322,6 +437,10 @@ def check_markdown_files() -> None:
         if any(part.startswith(".") for part in rel.parts):
             continue
         if rel.parts[:2] == ("evals", "fixtures"):
+            continue
+        # Vendored upstream skill packages are exempt from local style/link rules,
+        # while skills/external/README.md and docs/external/README.md remain enforced.
+        if rel.parts[:2] == ("skills", EXTERNAL_BUCKET) and rel != Path("skills/external/README.md"):
             continue
         text = md_path.read_text(encoding="utf-8")
         check_em_dashes(md_path, text)

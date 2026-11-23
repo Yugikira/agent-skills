@@ -21,3 +21,5 @@ jobs:
         run: python3 scripts/new_skill.py ci-smoke --mode user --goal "Smoke check" --dry-run
       - name: Smoke test skill installer
         run: python3 scripts/install_skills.py self-test
+      - name: Smoke test external skill manager
+        run: python3 scripts/external_skills.py self-test

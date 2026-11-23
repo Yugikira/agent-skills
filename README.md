@@ -23,7 +23,12 @@ The architecture synthesizes patterns from [mattpocock/skills](https://github.co
 4. **Run the improvement loop**:
    - Use `/skill-mode` as the entry point for creating, verifying, refining, or A/B testing any skill.
    - Run `scripts/ab_harness.py` to stage blinded A/B workspaces and score judge results into `evals/results/eval-log.tsv`.
-5. **Discover and deploy promoted skills on demand** (copies into a project workspace by default, flattened to `<target>/<skill-name>/`; pass `--mode link` or `--global` when you explicitly want live links or global installation):
+5. **Vendor external GitHub skills on demand** (pure Python + `git` sparse-checkout into `skills/external/`, pinned in `skills/external/manifest.json`):
+   ```bash
+   python3 scripts/external_skills.py add https://github.com/<owner>/<repo>/tree/main/skills/<name> --group <group>
+   python3 scripts/external_skills.py check
+   ```
+6. **Discover and deploy skills on demand** (copies into a project workspace by default, flattened to `<target>/<skill-name>/`; `--group` spans `custom/` + `external/` unless scoped by `--bucket`; pass `--mode link` or `--global` when you explicitly want live links or global installation):
    ```bash
    python3 scripts/install_skills.py list --describe
    python3 scripts/install_skills.py install --group kb-skills --workspace /path/to/project
@@ -31,9 +36,9 @@ The architecture synthesizes patterns from [mattpocock/skills](https://github.co
    python3 scripts/install_skills.py install --bucket custom --global --harness agents,claude,antigravity
    ```
 
-## Promoted Skills
+## Promoted & External Skills
 
-See [docs/README.md](docs/README.md) for the progressive-disclosure documentation catalog.
+See [docs/README.md](docs/README.md) for the progressive-disclosure documentation catalog (including [docs/external/README.md](docs/external/README.md) for vendored third-party skills).
 
 ### Domain Skill Groups
 
