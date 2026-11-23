@@ -14,6 +14,8 @@ Every behavioral change to a skill is evaluated against a concrete goal using su
       "trial_id": "t1",
       "workspace_slug": "harbor-billing",
       "organic_prompt": "Users report duplicate invoice emails after retrying a failed webhook. Investigate and summarize the root cause.",
+      "fixture_dir": "evals/fixtures/harbor-billing",
+      "fixture_target": "service",
       "fixture_files": {
         "README.md": "# Harbor Billing Service\n"
       }

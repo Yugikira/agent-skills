@@ -8,7 +8,7 @@ Enforces:
 - Zero em-dashes in repo prose
 - All relative Markdown links resolve to existing files
 - Promoted skills (meta/, custom/) synced across README.md, bucket README.md,
-  docs/<bucket>/<name>.md (4 required H2 headings), and skill-mode router
+  and docs/<bucket>/<name>.md (4 required H2 headings); meta/ skills synced in skill-mode router
 - Non-promoted skills (in-progress/, deprecated/) excluded from top-level README.md and docs/
 - Zero blinding-leak terms in evals/suites/*.json candidate-visible fields
 """
@@ -164,8 +164,8 @@ def check_skills() -> None:
                     for heading in REQUIRED_DOC_HEADINGS:
                         if heading not in doc_text:
                             errors.append(f"{doc_path.relative_to(ROOT)}: missing required section '{heading}'")
-                if skill_dir.name != "skill-mode" and skill_dir.name not in router_text:
-                    errors.append(f"skills/meta/skill-mode/SKILL.md: router does not mention promoted skill '{skill_dir.name}'")
+                if bucket == "meta" and skill_dir.name != "skill-mode" and skill_dir.name not in router_text:
+                    errors.append(f"skills/meta/skill-mode/SKILL.md: router does not mention meta skill '{skill_dir.name}'")
             else:
                 if rel_link in top_readme:
                     errors.append(f"README.md: non-promoted skill '{rel_link}' must not appear in top-level README.md")
@@ -175,7 +175,10 @@ def check_skills() -> None:
 
 def check_markdown_files() -> None:
     for md_path in sorted(ROOT.rglob("*.md")):
-        if any(part.startswith(".") for part in md_path.relative_to(ROOT).parts):
+        rel = md_path.relative_to(ROOT)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        if rel.parts[:2] == ("evals", "fixtures"):
             continue
         text = md_path.read_text(encoding="utf-8")
         check_em_dashes(md_path, text)
@@ -204,9 +207,23 @@ def check_eval_suites() -> None:
             fields_to_check = [
                 ("workspace_slug", str(trial.get("workspace_slug", ""))),
                 ("organic_prompt", str(trial.get("organic_prompt", ""))),
+                ("fixture_target", str(trial.get("fixture_target", ""))),
             ]
             for fname in (trial.get("fixture_files") or {}).keys():
                 fields_to_check.append((f"fixture_files[{fname}]", str(fname)))
+            if trial.get("fixture_dir"):
+                raw_dir = Path(str(trial["fixture_dir"])).expanduser()
+                fix_path = raw_dir if raw_dir.is_absolute() else (suite_path.parent / raw_dir)
+                if not fix_path.is_dir():
+                    fix_path = ROOT / raw_dir
+                if not fix_path.is_dir():
+                    errors.append(f"{suite_path.relative_to(ROOT)} (trial {tid}): fixture_dir not found -> {trial['fixture_dir']}")
+                else:
+                    for fp in sorted(fix_path.rglob("*")):
+                        rel_fp = fp.relative_to(fix_path)
+                        if any(part in (".git", "__pycache__", ".DS_Store") for part in rel_fp.parts):
+                            continue
+                        fields_to_check.append((f"fixture_dir[{rel_fp}]", str(rel_fp)))
             for field_name, val in fields_to_check:
                 for word, pat in word_patterns:
                     if pat.search(val):

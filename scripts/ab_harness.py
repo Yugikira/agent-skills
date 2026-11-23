@@ -20,6 +20,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+
 BANNED_BLINDING_WORDS = (
     "eval",
     "test",
@@ -38,6 +40,37 @@ def check_blinding_clean(text: str, label: str) -> None:
     for word in BANNED_BLINDING_WORDS:
         if re.search(rf"\b{re.escape(word)}\b", text, re.IGNORECASE):
             raise ValueError(f"Blinding violation in {label}: contains banned word '{word}'")
+
+
+def resolve_fixture_dir(raw_dir: str, suite_path: Path) -> Path:
+    cand = Path(raw_dir).expanduser()
+    if cand.is_absolute():
+        resolved = cand.resolve()
+    else:
+        rel_suite = (suite_path.parent / cand).resolve()
+        rel_root = (ROOT / cand).resolve()
+        resolved = rel_suite if rel_suite.is_dir() else rel_root
+    if not resolved.is_dir():
+        raise FileNotFoundError(f"Fixture directory not found: {raw_dir}")
+    return resolved
+
+
+def copy_fixture_dir(src_dir: Path, ws_dir: Path, target_subdir: str | None = None) -> None:
+    dest_root = ws_dir
+    if target_subdir:
+        check_blinding_clean(target_subdir, f"fixture_target {target_subdir}")
+        dest_root = ws_dir / target_subdir
+    for item in sorted(src_dir.rglob("*")):
+        rel = item.relative_to(src_dir)
+        if any(part in (".git", "__pycache__", ".DS_Store") for part in rel.parts):
+            continue
+        check_blinding_clean(str(rel), f"fixture_dir entry {rel}")
+        out_path = dest_root / rel
+        if item.is_dir():
+            out_path.mkdir(parents=True, exist_ok=True)
+        elif item.is_file():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, out_path)
 
 
 def copy_skill_into_workspace(skill_src: Path, workspace_dir: Path) -> None:
@@ -105,6 +138,11 @@ def cmd_prepare(args: argparse.Namespace) -> int:
             check_blinding_clean(ws_name, f"workspace {ws_name}")
             ws_dir = out_dir / "workspaces" / tid / ws_name
             ws_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy optional neutral fixture directory before overlaying inline fixture_files
+            if trial.get("fixture_dir"):
+                src_fix = resolve_fixture_dir(str(trial["fixture_dir"]), suite_path)
+                copy_fixture_dir(src_fix, ws_dir, trial.get("fixture_target"))
 
             # Write neutral fixture files
             for rel_file, content in (trial.get("fixture_files") or {}).items():
@@ -280,6 +318,46 @@ def cmd_self_test(_args: argparse.Namespace) -> int:
         )
         cmd_score(score_args)
         assert log_file.exists() and "PROMOTE_B" in log_file.read_text(encoding="utf-8")
+
+        # Also verify fixture_dir + fixture_target staging
+        fix_src = tmp_path / "sample-kb"
+        (fix_src / "notes").mkdir(parents=True)
+        (fix_src / "notes" / "alpha.md").write_text("# Alpha Note\n", encoding="utf-8")
+        fix_suite = tmp_path / "fix-suite.json"
+        fix_suite.write_text(
+            json.dumps(
+                {
+                    "suite_id": "fixture-dir-smoke",
+                    "target_skill": "writing-for-agents",
+                    "goal": "Verify directory fixtures copy cleanly.",
+                    "trials": [
+                        {
+                            "trial_id": "t1",
+                            "workspace_slug": "cedar-notes",
+                            "organic_prompt": "Summarize the project notes.",
+                            "fixture_dir": str(fix_src),
+                            "fixture_target": "library",
+                            "fixture_files": {"README.md": "# Cedar\n"},
+                        }
+                    ],
+                    "rubric": [{"id": "accuracy", "description": "Accurate", "weight": 1}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        run_dir2 = tmp_path / "run2"
+        cmd_prepare(
+            argparse.Namespace(
+                suite=str(fix_suite),
+                variant_a=str(skill_dir),
+                variant_b=str(skill_dir),
+                out=str(run_dir2),
+                seed=7,
+            )
+        )
+        ws_west = run_dir2 / "workspaces" / "t1" / "cedar-notes-west"
+        assert (ws_west / "library" / "notes" / "alpha.md").is_file()
+        assert (ws_west / "README.md").is_file()
     print("ab_harness self-test PASSED.")
     return 0
 

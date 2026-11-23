@@ -16,7 +16,7 @@ Every skill in a promoted bucket (`meta/`, `custom/`) must have:
 1. An entry in the top-level `README.md` linking the skill name to its `SKILL.md`.
 2. An entry in its bucket's `README.md` grouped under `User-invoked` or `Model-invoked`.
 3. A human-facing docs page at `docs/<bucket>/<skill-name>.md` with four sections: `What it does`, `When to reach for it`, `Common questions`, and `It's working if`.
-4. An entry in `skills/meta/skill-mode/SKILL.md` so the router stays accurate.
+4. For `skills/meta/` skills, an entry in `skills/meta/skill-mode/SKILL.md` so the meta-skill router stays accurate.
 
 Skills in `in-progress/` and `deprecated/` must not appear in the top-level `README.md` or `docs/`.
 
