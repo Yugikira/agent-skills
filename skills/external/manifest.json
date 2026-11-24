@@ -2,6 +2,206 @@
   "schema_version": 1,
   "skills": [
     {
+      "name": "ask-matt",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/ask-matt",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:09Z",
+      "summary": "Ask which skill or flow fits your situation. A router over the skills in this repo."
+    },
+    {
+      "name": "code-review",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/code-review",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:13Z",
+      "summary": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \\\"review since X\\\"."
+    },
+    {
+      "name": "codebase-design",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/codebase-design",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:18Z",
+      "summary": "Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary."
+    },
+    {
+      "name": "diagnosing-bugs",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/diagnosing-bugs",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:22Z",
+      "summary": "Diagnosis loop for hard bugs and performance regressions. Use when the user says \"diagnose\"/\"debug this\", or reports something broken/throwing/failing/slow."
+    },
+    {
+      "name": "domain-modeling",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/domain-modeling",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:26Z",
+      "summary": "Build and sharpen a project's domain model. Use when discussing codebase terminology, writing or editing a GLOSSARY.md, or recording or editing an ADR."
+    },
+    {
+      "name": "grill-with-docs",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/grill-with-docs",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:30Z",
+      "summary": "A relentless interview to sharpen a plan or design, which also creates docs (ADR's and glossary) as we go."
+    },
+    {
+      "name": "implement",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/implement",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:35Z",
+      "summary": "Implement a piece of work based on a spec or set of tickets."
+    },
+    {
+      "name": "implement-spec",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/implement-spec",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:39Z",
+      "summary": "Implement the result of /to-spec and /to-tickets in code."
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/improve-codebase-architecture",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:43Z",
+      "summary": "Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill through whichever one you pick."
+    },
+    {
+      "name": "pr",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/pr",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:46Z",
+      "summary": "Use when writing a PR body."
+    },
+    {
+      "name": "prototype",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/prototype",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:51Z",
+      "summary": "Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like."
+    },
+    {
+      "name": "research",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/research",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:55Z",
+      "summary": "Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent."
+    },
+    {
+      "name": "retro",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/retro",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:55:59Z",
+      "summary": "Conduct a retrospective on a coding session."
+    },
+    {
+      "name": "setup-matt-pocock-skills",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/setup-matt-pocock-skills",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:56:03Z",
+      "summary": "Configure this repo for the engineering skills: set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills."
+    },
+    {
+      "name": "tdd",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/tdd",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:56:07Z",
+      "summary": "Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions \"red-green-refactor\", or wants integration tests."
+    },
+    {
+      "name": "to-spec",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/to-spec",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:56:11Z",
+      "summary": "Turn the current conversation into a spec and publish it to the project issue tracker: no interview, just synthesis of what you've already discussed."
+    },
+    {
+      "name": "to-tickets",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/to-tickets",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:56:15Z",
+      "summary": "Break a plan, spec, or the current conversation into a set of tracer-bullet tickets, each declaring its blocking edges, published to the configured tracker (edges as text in one file per ticket locally, or native blocking links on a real tracker)."
+    },
+    {
+      "name": "triage",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/triage",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:56:19Z",
+      "summary": "Move issues and external PRs through a state machine of triage roles, categorise, verify, grill if needed, and write agent-ready briefs."
+    },
+    {
+      "name": "wayfinder",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/wayfinder",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:56:23Z",
+      "summary": "Plan a huge chunk of work (more than one agent session can hold) as a shared map of decision tickets on your issue tracker, and resolve them one at a time until the way to the destination is clear."
+    },
+    {
+      "name": "wizard",
+      "group": "engineering",
+      "repo": "https://github.com/mattpocock/skills.git",
+      "subpath": "skills/engineering/wizard",
+      "ref": "main",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "fetched_at": "2026-11-24T02:56:27Z",
+      "summary": "Generate an interactive bash wizard that walks a human through steps only they can perform. Use when provisioning infrastructure, setting up credentials or CI secrets, walking an unfamiliar third-party dashboard, or running a one-off migration or cutover. Don't invoke this for steps the agent can perform itself."
+    },
+    {
       "name": "grill-me",
       "group": "productivity",
       "repo": "https://github.com/mattpocock/skills.git",
